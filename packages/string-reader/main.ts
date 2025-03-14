@@ -50,7 +50,7 @@ export class StringReader {
   }
 
   /**
-   * Match string or RegExp at current position
+   * Check if string or RegExp is matched at current position
    *
    * This function does NOT advance the position
    *
@@ -66,7 +66,7 @@ export class StringReader {
   }
 
   /**
-   * Match string or RegExp at current position
+   * Read if string or RegExp is matched at current position
    *
    * This function advances the position if matched
    *
