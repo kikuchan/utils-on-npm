@@ -19,10 +19,10 @@ if [ "${CMD}" = "alpha" -o "${CMD}" = "beta" ]; then
 fi
 
 updated=""
-last_release_rag=$(git tag|grep release|sort -r|head -1)
+last_release_tag=$(git tag|grep release|sort -r|head -1)
 for d in packages/*; do
 	echo -n "${d}: "
-	changes=$(git log --oneline ${last_release_rag}.. $d | wc -l)
+	changes=$(git log --oneline ${last_release_tag}.. $d | wc -l)
 
 	if [ ${changes} -gt 0 ]; then
 		echo "${changes} changes."
