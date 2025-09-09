@@ -1,6 +1,7 @@
 function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
 }
+
 export class StringReader {
   #s: string;
   #pos: number = 0;
@@ -62,7 +63,11 @@ export class StringReader {
 
     const sliced = this.#s.slice(this.position);
 
-    return (typeof m === 'string' ? sliced.startsWith(m) && [m] : sliced.match(new RegExp(m, 'y'))) || null;
+    return (
+      (typeof m === 'string'
+        ? sliced.startsWith(m) && [m]
+        : sliced.match(new RegExp(m, m.sticky ? m.flags : m.flags + 'y'))) || null
+    );
   }
 
   /**
@@ -122,7 +127,7 @@ export class StringReader {
    * @returns whther found or not
    */
   skipUntil(m: string | RegExp) {
-    return this.#search(m, (n) => this.skip(n)) && true;
+    return this.#search(m, (n) => this.skip(n)) !== null;
   }
 
   /**
@@ -147,10 +152,12 @@ export class StringReader {
     if (this.eof()) return '';
 
     n = n ?? 1;
-    if (n <= 0) n = this.remain + n;
+    if (n <= 0) throw new RangeError('read(n): n must be > 0');
 
     const read = this.#s.slice(this.position, this.position + n);
     this.skip(n);
     return read;
   }
 }
+
+export default StringReader;
