@@ -24,7 +24,6 @@
     "noPropertyAccessFromIndexSignature": true,
 
     // declaration
-    "declaration": true,
-    "emitDeclarationOnly": true,
+    "noEmit": true
   }
 }
