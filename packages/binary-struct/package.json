@@ -1,0 +1,24 @@
+{
+  "name": "@kikuchan/binary-struct",
+  "description": "binary-struct",
+  "keywords": [
+    "struct"
+  ],
+  "version": "0.1.0-alpha.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsdown",
+    "type:check": "tsc --noEmit"
+  },
+  "author": "kikuchan <kikuchan98@gmail.com>",
+  "homepage": "https://github.com/kikuchan/utils-on-npm#readme",
+  "license": "MIT",
+  "dependencies": {
+    "@kikuchan/binary-reader": "workspace:*",
+    "@kikuchan/binary-writer": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.21"
+  }
+}
