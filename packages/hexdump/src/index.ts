@@ -1,3 +1,5 @@
+export type BinaryLike = Uint8Array | Uint8ClampedArray | ArrayBufferLike | DataView;
+
 function hex(v: number, c: number) {
   return Number(v).toString(16).padStart(c, '0');
 }
@@ -44,7 +46,7 @@ type Formatter = undefined | ((s: string, ctx: Context) => string | undefined);
 type Options = {
   addrOffset?: number;
   addrLength?: number;
-  printer?: false | ((s: string) => void) /* for each line */;
+  printer?: null | ((s: string) => void) /* for each line */;
   formatter?: Formatter /* for each item */;
   color?: Colorizer;
   prefix?: string;
@@ -54,8 +56,8 @@ type Options = {
 };
 
 interface Hexdumper {
-  (buf: ArrayLike<number> | ArrayBuffer | DataView, options?: Options): string;
-  (buf: ArrayLike<number> | ArrayBuffer | DataView, len: number, options?: Options): string;
+  (buf: BinaryLike, options?: Options): string;
+  (buf: BinaryLike, len: number, options?: Options): string;
 }
 
 interface Hexdump extends Hexdumper {
@@ -133,7 +135,6 @@ const create_colorizer = (colorizer: Colorizer) => {
         if (defs.control !== undefined && ctx.value < 0x20) return defs.control;
         if (defs.ascii !== undefined && 0x20 <= ctx.value && ctx.value < 0x7f) return defs.ascii;
         if (defs.exascii !== undefined && 0x80 <= ctx.value && ctx.value <= 0xff) return defs.exascii;
-        return defs.normal;
       }
 
       return defs.normal;
@@ -143,13 +144,21 @@ const create_colorizer = (colorizer: Colorizer) => {
   return (s: string, ctx: Context) => {
     const color = ctx.type === 'flush' ? null : colorizer(s, ctx);
 
+    // If color changes, emit leave/enter tokens and escape content.
     if (
       color !== undefined &&
       (lastColor?.enter !== color?.enter || lastColor?.leave !== color?.leave || lastColor?.escape !== color?.escape)
     ) {
       s = (lastColor?.leave || '') + (color?.enter || '') + (color?.escape || identity)(s);
       lastColor = color;
+      return s;
     }
+
+    // If color stays the same and provides an escaper, still escape content.
+    if (color && color.escape) {
+      return color.escape(s);
+    }
+
     return s;
   };
 };
@@ -163,7 +172,7 @@ const create_formatter = (formatter: Formatter) => {
 };
 
 function create_hexdumper(printer: ((s: string) => void) | null): Hexdumper {
-  return (buf: ArrayLike<number> | ArrayBuffer | DataView, len?: number | Options, options?: Options) => {
+  return (buf: BinaryLike, len?: number | Options, options?: Options) => {
     const u8 = ArrayBuffer.isView(buf)
       ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
       : new Uint8Array(buf);
@@ -174,7 +183,7 @@ function create_hexdumper(printer: ((s: string) => void) | null): Hexdumper {
     options = { ...(options ?? {}) };
     if (len === undefined || len < 0) len = u8.length;
 
-    printer = options.printer || printer;
+    printer = options.printer === null ? null : (options.printer ?? printer);
     const formatter = create_formatter(options.formatter);
     const colorize = create_colorizer(options.color);
 
@@ -199,7 +208,7 @@ function create_hexdumper(printer: ((s: string) => void) | null): Hexdumper {
 
       print('', { type: 'line-prefix' });
       print(prefix, { type: 'address-prefix' });
-      print(hex(address, addrLength), { type: 'address', address });
+      if (addrLength >= 1) print(hex(address, addrLength), { type: 'address', address });
       print(': ', { type: 'address-suffix' });
 
       print(' ', { type: 'hex-dump-prefix' });
@@ -259,13 +268,11 @@ function create_hexdumper(printer: ((s: string) => void) | null): Hexdumper {
 export const hexdump: Hexdump = Object.assign(create_hexdumper(null), {
   create: create_hexdumper,
 
-  log: create_hexdumper(console.log),
-  warn: create_hexdumper(console.warn),
-  error: create_hexdumper(console.error),
+  log: create_hexdumper((s) => console.log(s)),
+  warn: create_hexdumper((s) => console.warn(s)),
+  error: create_hexdumper((s) => console.error(s)),
 
   string: create_hexdumper(null),
 });
 
-export default {
-  hexdump,
-};
+export default hexdump;
