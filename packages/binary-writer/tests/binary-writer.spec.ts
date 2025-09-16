@@ -17,6 +17,22 @@ describe('BinaryWriter core state', () => {
     expect(bw.capacity).toBe(4);
     expect(() => bw.writeUint8(5)).toThrow(Error);
   });
+
+  it('tracks written size separately from capacity in fixed mode', () => {
+    const bw = new BinaryWriter(4);
+    expect(bw.size).toBe(0);
+    expect(bw.capacity).toBe(4);
+
+    bw.writeUint8(0xaa);
+    expect(bw.position).toBe(1);
+    expect(bw.size).toBe(1);
+    expect(Array.from(new Uint8Array(bw.buffer))).toEqual([0xaa]);
+
+    bw.writeUint8(0xbb);
+    expect(bw.position).toBe(2);
+    expect(bw.size).toBe(2);
+    expect(Array.from(new Uint8Array(bw.buffer))).toEqual([0xaa, 0xbb]);
+  });
 });
 
 describe('BinaryWriter movement and seeking', () => {

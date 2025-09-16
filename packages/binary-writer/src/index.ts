@@ -35,7 +35,6 @@ export class BinaryWriter {
       this.#view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
     }
     this.#pos = 0;
-    if (!this.#resizable) this.#size = this.#view.byteLength;
     this.#littleEndian = opts?.littleEndian;
   }
 
