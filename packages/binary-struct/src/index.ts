@@ -505,7 +505,14 @@ export const enumerate = defineType(
     const revMap = new Map<number, string>(kvs.map(([k, v]) => [v, k]));
     return {
       init: (seed?: EnumerateKeys<T>): EnumerateKeys<T> => (seed ?? kvs[0][0]) as EnumerateKeys<T>,
-      read: (r: BinaryReader) => revMap.get(type.read(r)) as EnumerateKeys<T>,
+      read: (r: BinaryReader) => {
+        const raw = type.read(r);
+        const key = revMap.get(raw);
+        if (typeof key === 'undefined') {
+          throw new Error(`enumerate: unknown value ${raw}`);
+        }
+        return key as EnumerateKeys<T>;
+      },
       write: (w: BinaryWriter, d: EnumerateKeys<T>) => type.write(w, map.get(d as string)!),
     };
   },

@@ -248,6 +248,13 @@ describe('binary-struct', () => {
     });
   });
 
+  describe('Enumerate', () => {
+    it('throws when parsing an unknown value', () => {
+      const color = M.enumerate(['red', 'green'] as const);
+      expect(() => color.parse(new Uint8Array([5]))).toThrow(Error);
+    });
+  });
+
   describe('Array', () => {
     it('roundtrips count-prefixed arrays', () => {
       const A = M.array(M.uint8(), M.uint8());
