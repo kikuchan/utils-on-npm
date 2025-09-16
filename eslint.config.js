@@ -1,12 +1,13 @@
 import { includeIgnoreFile } from '@eslint/compat';
 import eslint from '@eslint/js';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
+import { defineConfig } from 'eslint/config';
 import { join } from 'node:path';
 import tseslint from 'typescript-eslint';
 
 const ignorePath = join(import.meta.dirname, '.prettierignore');
 
-export default tseslint.config(
+export default defineConfig(
   includeIgnoreFile(ignorePath),
   eslint.configs.recommended,
   tseslint.configs.recommended,

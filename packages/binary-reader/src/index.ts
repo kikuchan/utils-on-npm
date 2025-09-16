@@ -37,8 +37,9 @@ export class BinaryReader {
 
   seek(n: number | string) {
     if (typeof n === 'string') {
-      n = this.#bookmarks[n];
-      if (typeof n === 'undefined') throw new Error('seek: no such bookmark');
+      const b = this.#bookmarks[n];
+      if (typeof b === 'undefined') throw new Error('seek: no such bookmark');
+      n = b;
     }
     if (typeof n === 'number') {
       this.#pos = Math.min(Math.max(n, 0), this.size);
