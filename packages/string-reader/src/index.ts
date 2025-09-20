@@ -152,7 +152,7 @@ export class StringReader {
     if (this.eof()) return '';
 
     n = n ?? 1;
-    if (n <= 0) throw new RangeError('read(n): n must be > 0');
+    if (n < 0) throw new RangeError('read(n): n must be >= 0');
 
     const read = this.#s.slice(this.position, this.position + n);
     this.skip(n);

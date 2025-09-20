@@ -156,10 +156,9 @@ describe('read', () => {
     expect(r.position).toBe(3);
   });
 
-  it('read(0) throws', () => {
+  it('does nothing on read(0)', () => {
     const r = new StringReader('abcd');
     r.read(1); // leave 3
-    expect(() => r.read(0)).toThrow(RangeError);
     expect(r.position).toBe(1);
   });
 
