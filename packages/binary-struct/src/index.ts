@@ -305,6 +305,28 @@ export const float16be = () => float16(false);
 export const float32be = () => float32(false);
 export const float64be = () => float64(false);
 
+export const optional = defineType(<T, W = T, S = W>(type: Type<T, W, S>, fallback?: S | (() => S | undefined)) => {
+  const provide = (seed?: S): T | undefined => {
+    if (seed !== undefined) return type(seed);
+    if (fallback === undefined) return undefined;
+    const next = typeof fallback === 'function' ? (fallback as () => S | undefined)() : fallback;
+    if (next === undefined) return undefined;
+    return type(next);
+  };
+
+  return {
+    init: (seed?: S) => provide(seed),
+    read: (r: BinaryReader) => {
+      if (r.remain <= 0) return provide();
+      return type.read(r);
+    },
+    write: (w: BinaryWriter, value: W | undefined) => {
+      if (value === undefined) return;
+      type.write(w, value as W);
+    },
+  } as TypeDef<T | undefined, W | undefined, S | undefined>;
+});
+
 function readLength<T extends number | Type<number> | undefined>(
   r: BinaryReader,
   n: T,
@@ -737,6 +759,7 @@ export default {
   float16be,
   float32be,
   float64be,
+  optional,
   array,
   typedArray,
   defineArrayType,
