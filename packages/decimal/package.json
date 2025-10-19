@@ -1,0 +1,19 @@
+{
+  "name": "@kikuchan/decimal",
+  "description": "Arbitrary precision decimal arithmetic in TypeScript by leveraging native BigInt",
+  "keywords": [
+    "decimal",
+    "arbitrary",
+    "bigint"
+  ],
+  "version": "0.1.0-alpha.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsdown",
+    "type:check": "tsc --noEmit"
+  },
+  "author": "kikuchan <kikuchan98@gmail.com>",
+  "homepage": "https://github.com/kikuchan/utils-on-npm#readme",
+  "license": "MIT"
+}

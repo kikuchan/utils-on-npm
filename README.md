@@ -5,3 +5,4 @@
 - [@kikuchan/binary-struct](packages/binary-struct)
 - [@kikuchan/hexdump](packages/hexdump)
 - [@kikuchan/string-reader](packages/string-reader)
+- [@kikuchan/decimal](packages/decimal)

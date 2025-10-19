@@ -68,6 +68,8 @@ importers:
 
   packages/binary-writer: {}
 
+  packages/decimal: {}
+
   packages/hexdump: {}
 
   packages/string-reader: {}
