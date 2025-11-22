@@ -1197,4 +1197,47 @@ describe('binary-struct', () => {
       }
     });
   });
+
+  describe('Edge cases', () => {
+    it('returns undefined when buffer is empty', () => {
+      const T = M.optional(M.uint32le());
+      expectType<Equal<ReturnType<typeof T>, number | undefined>>(true);
+      expect(T()).toBeUndefined();
+      expect(T.parse(new Uint8Array())).toBeUndefined();
+      expect(T.compose()).toEqual(new Uint8Array());
+    });
+
+    it('honors fallbacks when provided', () => {
+      const T = M.optional(M.uint16le(), () => 0x1234);
+      expect(T()).toBe(0x1234);
+      expect(T.parse(new Uint8Array())).toBe(0x1234);
+      expect(T(0x0102)).toBe(0x0102);
+    });
+
+    it('uses literal fallback values when no input is provided', () => {
+      const T = M.optional(M.uint16le(), 0x4321);
+      expect(T()).toBe(0x4321);
+      expect(T.parse(new Uint8Array())).toBe(0x4321);
+    });
+
+    it('returns undefined when fallback function yields undefined', () => {
+      let invocations = 0;
+      const T = M.optional(M.uint8(), () => {
+        invocations += 1;
+        return undefined;
+      });
+
+      expect(T()).toBeUndefined();
+      expect(invocations).toBe(1);
+      expect(T.parse(new Uint8Array())).toBeUndefined();
+      expect(invocations).toBe(2);
+    });
+
+    it('reads and writes values when present', () => {
+      const T = M.optional(M.uint32le());
+      const bytes = T.compose(0x01020304);
+      expect(bytes).toEqual(new Uint8Array([0x04, 0x03, 0x02, 0x01]));
+      expect(T.parse(bytes)).toBe(0x01020304);
+    });
+  });
 });
