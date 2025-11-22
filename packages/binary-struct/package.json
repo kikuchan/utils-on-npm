@@ -19,7 +19,6 @@
     "@kikuchan/binary-writer": "workspace:*"
   },
   "devDependencies": {
-    "@kikuchan/hexdump": "workspace:*",
-    "@types/bun": "^1.2.21"
+    "@kikuchan/hexdump": "workspace:*"
   }
 }
