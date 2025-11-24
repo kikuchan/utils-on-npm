@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RoundingMode } from '../src/index.ts';
 import { Decimal, isDecimal, max, min, minmax, pow10 } from '../src/index.ts';
 
@@ -30,6 +30,11 @@ describe('Decimal construction', () => {
     const value = Decimal({ coeff: 987654321n, digits: 5n });
     expect(value.coeff).toBe(987654321n);
     expect(value.digits).toBe(5n);
+  });
+
+  it('returns existing decimal instances unchanged', () => {
+    const value = Decimal(42);
+    expect(Decimal(value)).toBe(value);
   });
 
   it('returns nullish inputs unchanged', () => {
@@ -261,6 +266,12 @@ describe('Decimal transforms', () => {
 });
 
 describe('Decimal type guards', () => {
+  it('detects decimals using isDecimal', () => {
+    const value = Decimal(7);
+    expect(Decimal.isDecimal(value)).toBe(true);
+    expect(Decimal.isDecimal(7)).toBe(false);
+  });
+
   it('recognizes supported literal inputs', () => {
     expect(Decimal.isDecimalLike('42.00')).toBe(true);
     expect(Decimal.isDecimalLike(42)).toBe(true);
@@ -366,6 +377,32 @@ describe('Decimal sign helpers', () => {
     expect(negative.isZero()).toBe(false);
     expect(negative.isPositive()).toBe(false);
     expect(negative.isNegative()).toBe(true);
+  });
+
+  describe('sign', () => {
+    it('returns a 0', () => {
+      const value = Decimal(0);
+      expect(value.sign().toString()).toBe('0');
+    });
+    it('returns a -1', () => {
+      const value = Decimal(-1.987);
+      expect(value.sign().toString()).toBe('-1');
+    });
+    it('returns a 1', () => {
+      const value = Decimal(1.987);
+      expect(value.sign().toString()).toBe('1');
+    });
+  });
+
+  describe('neg', () => {
+    it('returns negated value', () => {
+      const value = Decimal(1.987);
+      expect(value.neg(true).toString()).toBe('-1.987');
+    });
+    it('returns original value', () => {
+      const value = Decimal(1.987);
+      expect(value.neg(false).toString()).toBe('1.987');
+    });
   });
 });
 
@@ -647,6 +684,14 @@ describe('Decimal roots', () => {
     expect(root.toString()).toBe('-3.00000000');
   });
 
+  it('uses floating approximations for moderate roots', () => {
+    const powSpy = vi.spyOn(Math, 'pow');
+    const root = Decimal(256).root(4n, 6n);
+    expect(powSpy).toHaveBeenCalled();
+    expect(root.eq(Decimal(4))).toBe(true);
+    powSpy.mockRestore();
+  });
+
   it('throws on even roots of negative numbers', () => {
     expect(() => Decimal(-16).root(2n, 8n)).toThrowError();
   });
@@ -714,6 +759,46 @@ describe('Decimal roots', () => {
     const tolerance = pow10(-(digits - 4n));
     expect(recomposed.isCloseTo(value.rescale(digits), tolerance)).toBe(true);
   });
+
+  it('falls back to order-based estimates when floating guesses overflow', () => {
+    const powSpy = vi.spyOn(Math, 'pow');
+    const huge = Decimal({ coeff: 1n, digits: -5000n });
+    const root = huge.root(2n, 4n);
+    expect(powSpy).not.toHaveBeenCalled();
+    expect(root.digits).toBe(4n);
+    powSpy.mockRestore();
+  });
+
+  it('recovers when floating approximation yields a non-finite guess', () => {
+    const powSpy = vi.spyOn(Math, 'pow').mockReturnValueOnce(Number.NaN);
+    const root = Decimal(64).root(3n, 8n);
+    expect(powSpy).toHaveBeenCalled();
+    expect(root.eq(Decimal(4))).toBe(true);
+    powSpy.mockRestore();
+  });
+
+  it('treats non-positive numeric degree hints as fallbacks while keeping bigint logic', () => {
+    const originalNumber = Number;
+    const targetDegree = 2n;
+    const mockNumber = function (value: unknown) {
+      if (value === targetDegree) return 0;
+      return originalNumber(value as never);
+    } as NumberConstructor;
+    for (const key of Object.getOwnPropertyNames(originalNumber)) {
+      const descriptor = Object.getOwnPropertyDescriptor(originalNumber, key);
+      if (descriptor) {
+        Object.defineProperty(mockNumber, key, descriptor);
+      }
+    }
+
+    (globalThis as { Number: NumberConstructor }).Number = mockNumber;
+    try {
+      const root = Decimal(16).root(targetDegree, 6n);
+      expect(root.eq(Decimal(4))).toBe(true);
+    } finally {
+      (globalThis as { Number: NumberConstructor }).Number = originalNumber;
+    }
+  });
 });
 
 describe('Decimal modular helpers', () => {
@@ -724,6 +809,11 @@ describe('Decimal modular helpers', () => {
 
   it('returns positive modulo', () => {
     expect(Decimal(-17).modPositive(5).toString()).toBe(Decimal(3).toString());
+  });
+
+  it('leaves positive remainders unchanged in modPositive', () => {
+    const result = Decimal(17).modPositive(5);
+    expect(result.toString()).toBe(Decimal(2).toString());
   });
 
   it('rejects negative divisors for positive modulo', () => {

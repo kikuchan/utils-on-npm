@@ -41,10 +41,12 @@ export interface Decimal {
   splitBy(step: DecimalLike, mode?: RoundingMode): [Decimal, Decimal];
 
   // Sign and absolute
-  neg$(): this;
-  neg(): Decimal;
+  neg$(flag?: boolean): this;
+  neg(flag?: boolean): Decimal;
   abs$(): this;
   abs(): Decimal;
+  sign$(): this;
+  sign(): Decimal;
   isZero(): boolean;
   isPositive(): boolean;
   isNegative(): boolean;
@@ -519,13 +521,15 @@ class DecimalImpl implements Decimal {
     return this.clone().splitBy$(step, mode);
   }
 
-  neg$(): this {
-    this.coeff = -this.coeff;
+  neg$(flag?: boolean): this {
+    if (flag !== false) {
+      this.coeff = -this.coeff;
+    }
     return this;
   }
 
-  neg(): DecimalImpl {
-    return this.clone().neg$();
+  neg(flag?: boolean): DecimalImpl {
+    return this.clone().neg$(flag);
   }
 
   isZero(): boolean {
@@ -864,6 +868,17 @@ class DecimalImpl implements Decimal {
     return this.clone().log$(base, digits);
   }
 
+  sign$() {
+    if (this.isZero()) return this;
+    this.coeff = this.coeff < 0n ? -1n : 1n;
+    this.digits = 0n;
+    return this;
+  }
+
+  sign() {
+    return this.clone().sign$();
+  }
+
   order(): bigint {
     if (this.isZero()) throw new RangeError('order undefined for 0');
     return BigInt(abs(this.coeff).toString().length) - 1n - this.digits;
@@ -986,7 +1001,6 @@ export namespace Decimal {
     return minmax(...values)[0];
   }
 
-  /* c8 ignore next */
   export function max(...values: (DecimalLike | null | undefined)[]): Decimal | null {
     return minmax(...values)[1];
   }
