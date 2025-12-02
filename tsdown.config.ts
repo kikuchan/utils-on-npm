@@ -20,6 +20,7 @@ export default defineConfig({
   fixedExtension: false,
 
   onSuccess() {
+    fs.copyFileSync('./README.md', path.join(outDir, 'README.md'));
     fs.writeFileSync(
       path.join(outDir, 'package.json'),
       JSON.stringify(
