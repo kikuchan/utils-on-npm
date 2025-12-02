@@ -1186,11 +1186,18 @@ describe('Decimal boundaries', () => {
     expect(clamped.eq(original)).toBe(true);
   });
 
-  it('rescale preserves explicit zero scales without stripping digits', () => {
+  it('compresses zero to standard form with rescale', () => {
     const value = Decimal({ coeff: 0n, digits: 5n });
     const compressed = value.rescale();
-    expect(compressed.digits).toBe(5n);
-    expect(compressed.toString()).toBe('0.00000');
+    expect(compressed.digits).toBe(0n);
+    expect(compressed.toString()).toBe('0');
+  });
+
+  it('compresses zero with negative exponent to standard form with rescale', () => {
+    const value = Decimal({ coeff: 0n, digits: -5n });
+    const compressed = value.rescale();
+    expect(compressed.digits).toBe(0n);
+    expect(compressed.toString()).toBe('0');
   });
 });
 

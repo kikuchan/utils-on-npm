@@ -407,7 +407,11 @@ class DecimalImpl implements Decimal {
   }
 
   #stripTrailingZeros$(): this {
-    if (this.digits <= 0n || this.coeff === 0n) return this;
+    if (this.coeff === 0n) {
+      this.digits = 0n;
+      return this;
+    }
+    if (this.digits <= 0n) return this;
     while (this.digits > 0n && this.coeff % 10n === 0n) {
       this.coeff /= 10n;
       this.digits -= 1n;
