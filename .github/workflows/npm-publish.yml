@@ -11,6 +11,7 @@ jobs:
 
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -33,7 +34,7 @@ jobs:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
@@ -45,10 +46,11 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish (npm workspaces)
-        run: pnpm -r publish --access=public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      - name: Publish
+        run: |
+          for pkg in dist/*; do
+            npm publish "$pkg" --access public --provenance
+          done
 
       - name: Create Release
         id: create_release
