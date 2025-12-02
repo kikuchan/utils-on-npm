@@ -3,6 +3,11 @@ if [ $# -lt 1 ]; then
 	echo "Usage: $0 <major | minor | patch | premajor | preminor | prepatch | prerelease | alpha | beta>"
 	exit
 fi
+FORCE=0
+if [ "$1" = "-f" ]; then
+	FORCE=1
+	shift
+fi
 
 DIRTY=$(git status --untracked-files=no --porcelain)
 if [ -n "${DIRTY}" ]; then
@@ -24,7 +29,7 @@ for d in packages/*; do
 	echo -n "${d}: "
 	changes=$(git log --oneline ${last_release_tag}.. $d | wc -l)
 
-	if [ ${changes} -gt 0 ]; then
+	if [ ${changes} -gt 0 -o ${FORCE} -gt 0 ]; then
 		echo "${changes} changes."
 		version=$(cd $d; npm version --no-git-tag-version --preid="${PREID}" "${CMD}")
 		updated="${updated}|$(cd $d; jq -rc '.name + ": " + .version' package.json)"
