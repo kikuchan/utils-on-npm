@@ -18,6 +18,7 @@ export default defineConfig({
 
   outDir,
   fixedExtension: false,
+  format: ['esm', 'cjs'],
 
   onSuccess() {
     fs.copyFileSync('./README.md', path.join(outDir, 'README.md'));
@@ -32,6 +33,7 @@ export default defineConfig({
             '.': {
               types: replaceSrc(pkg.main, 'd.ts'),
               import: replaceSrc(pkg.main),
+              require: replaceSrc(pkg.main, 'cjs'),
             },
           },
           repository: {
