@@ -1,6 +1,6 @@
 #!/bin/sh
 if [ $# -lt 1 ]; then
-	echo "Usage: $0 <major | minor | patch | premajor | preminor | prepatch | prerelease | alpha | beta>"
+	echo "Usage: $0 [-f] <major | minor | patch | premajor | preminor | prepatch | prerelease | alpha | beta>"
 	exit
 fi
 FORCE=0
