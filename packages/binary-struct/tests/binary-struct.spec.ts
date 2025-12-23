@@ -4,6 +4,26 @@ import { expectType } from '../../../tests/_types';
 import * as M from '../src/index';
 
 describe('binary-struct', () => {
+  describe('Boolean', () => {
+    it('roundtrips boolean', () => {
+      const t = M.boolean();
+      const values = [false, true];
+      for (const v of values) {
+        const bytes = t.compose(v);
+        expect(bytes).toEqual(new Uint8Array([v ? 1 : 0]));
+        expect(t.parse(bytes)).toBe(v);
+      }
+    });
+    it('roundtrips boolean with a custom value', () => {
+      const t = M.boolean(0x50);
+      const values = [false, true];
+      for (const v of values) {
+        const bytes = t.compose(v);
+        expect(bytes).toEqual(new Uint8Array([v ? 0x50 : 0]));
+        expect(t.parse(bytes)).toBe(v);
+      }
+    });
+  });
   describe('Numbers', () => {
     it('roundtrips uint8', () => {
       const t = M.uint8();
@@ -125,6 +145,7 @@ describe('binary-struct', () => {
     });
 
     it('accepts seeds in init for primitive types', () => {
+      expect(M.boolean()(false)).toBe(false);
       expect(M.int8()(-5)).toBe(-5);
       expect(M.uint32()(0x1234)).toBe(0x1234);
       expect(M.uint64()(1n)).toBe(1n);
@@ -817,6 +838,7 @@ describe('binary-struct', () => {
     });
 
     it('returns sensible defaults from primitive constructors', () => {
+      expect(typeof M.boolean()()).toBe('boolean');
       expect(typeof M.uint8()()).toBe('number');
       expect(typeof M.int8()()).toBe('number');
       expect(typeof M.uint16()()).toBe('number');

@@ -228,6 +228,12 @@ export const struct = defineType(
   },
 );
 
+export const boolean = defineType((t?: number) => ({
+  init: (v?: boolean) => Boolean(v),
+  read: (r) => (r.readUint8() ? true : false),
+  write: (w, v) => w.writeUint8(v ? (t ?? 1) : 0),
+}));
+
 export const uint8 = defineType(() => ({
   init: (v?: number) => (typeof v === 'number' ? v : 0),
   read: (r) => r.readUint8(),
