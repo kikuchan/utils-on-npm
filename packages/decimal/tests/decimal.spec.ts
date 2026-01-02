@@ -265,6 +265,36 @@ describe('Decimal transforms', () => {
   });
 });
 
+describe('Decimal fractional helpers', () => {
+  it('returns the fractional part without mutating the original', () => {
+    const value = Decimal('7.125');
+    const fractional = value.frac();
+    expect(fractional.toString()).toBe('0.125');
+    expect(value.toString()).toBe('7.125');
+    expect(fractional).not.toBe(value);
+  });
+
+  it('mutates in place with frac$', () => {
+    const value = Decimal('12.3400');
+    const result = value.frac$();
+    expect(result).toBe(value);
+    expect(value.toString()).toBe('0.3400');
+    expect(value.digits).toBe(4n);
+  });
+
+  it('returns zero for integer values', () => {
+    const value = Decimal({ coeff: 12n, digits: -2n });
+    const fractional = value.frac();
+    expect(fractional.toString()).toBe('0');
+    expect(fractional.digits).toBe(0n);
+  });
+
+  it('preserves negative fractional signs', () => {
+    const value = Decimal('-3.25');
+    expect(value.frac().toString()).toBe('-0.25');
+  });
+});
+
 describe('Decimal type guards', () => {
   it('detects decimals using isDecimal', () => {
     const value = Decimal(7);
@@ -282,6 +312,28 @@ describe('Decimal type guards', () => {
     expect(Decimal.isDecimalLike(Decimal(7))).toBe(true);
     expect(Decimal.isDecimalLike({ coeff: 123n, digits: 4n })).toBe(true);
     expect(Decimal.isDecimalLike({ coeff: 123, digits: 4n })).toBe(false);
+  });
+});
+
+describe('Decimal equals helper', () => {
+  it('returns true for equivalent decimal-like values', () => {
+    expect(Decimal.equals(Decimal('1.20'), '1.2')).toBe(true);
+    expect(Decimal.equals(Decimal(5), 5n)).toBe(true);
+  });
+
+  it('returns false for different values', () => {
+    expect(Decimal.equals(Decimal(1), 2)).toBe(false);
+  });
+
+  it('treats nullish pairs as equal only when identical', () => {
+    expect(Decimal.equals(null, null)).toBe(true);
+    expect(Decimal.equals(undefined, undefined)).toBe(true);
+    expect(Decimal.equals(null, undefined)).toBe(false);
+  });
+
+  it('returns false when only one side is nullish', () => {
+    expect(Decimal.equals(null, Decimal(0))).toBe(false);
+    expect(Decimal.equals(undefined, 0)).toBe(false);
   });
 });
 

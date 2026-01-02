@@ -39,6 +39,8 @@ export interface Decimal {
   split(digits?: bigint | number, mode?: RoundingMode): [Decimal, Decimal];
   splitBy$(step: DecimalLike, mode?: RoundingMode): [Decimal, Decimal];
   splitBy(step: DecimalLike, mode?: RoundingMode): [Decimal, Decimal];
+  frac$(): this;
+  frac(): Decimal;
 
   // Sign and absolute
   neg$(flag?: boolean): this;
@@ -525,6 +527,21 @@ class DecimalImpl implements Decimal {
     return this.clone().splitBy$(step, mode);
   }
 
+  frac$(): this {
+    if (this.digits <= 0n) {
+      this.coeff = 0n;
+      this.digits = 0n;
+      return this;
+    }
+    const scale = pow10n(this.digits);
+    this.coeff = this.coeff % scale;
+    return this;
+  }
+
+  frac(): DecimalImpl {
+    return this.clone().frac$();
+  }
+
   neg$(flag?: boolean): this {
     if (flag !== false) {
       this.coeff = -this.coeff;
@@ -1007,6 +1024,10 @@ export namespace Decimal {
 
   export function max(...values: (DecimalLike | null | undefined)[]): Decimal | null {
     return minmax(...values)[1];
+  }
+
+  export function equals(a: DecimalLike | null | undefined, b: DecimalLike | null | undefined) {
+    return a === b || (a != null && b != null && Decimal(a).eq(Decimal(b)));
   }
 }
 
