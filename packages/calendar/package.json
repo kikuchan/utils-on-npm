@@ -1,11 +1,12 @@
 {
-  "name": "@kikuchan/bigdate",
-  "description": "Arbitrary precision date and time library using decimal numbers.",
+  "name": "@kikuchan/calendar",
+  "description": "Arbitrary precision date and time library built on top of @kikuchan/decimal",
   "keywords": [
     "decimal",
     "arbitrary",
     "date",
-    "bigint"
+    "time",
+    "calendar"
   ],
   "version": "0.0.1-alpha.1",
   "type": "module",

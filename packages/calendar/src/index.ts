@@ -267,7 +267,7 @@ function ensureZone(value: string | undefined): Zone {
   return 'utc';
 }
 
-export class BigDate {
+export class Calendar {
   #epoch: Decimal;
   #zone: Zone;
 
@@ -327,28 +327,28 @@ export class BigDate {
   }
 
   static fromEpoch(epochSeconds: DecimalLike, zone: Zone = 'utc') {
-    return new BigDate(epochSeconds, zone);
+    return new Calendar(epochSeconds, zone);
   }
 
   static fromDate(date: Date, zone: Zone = 'utc') {
-    return new BigDate(date, zone);
+    return new Calendar(date, zone);
   }
 
   static fromCalendar(input: CalendarInput, zone: Zone = 'utc') {
     const components = normalizeCalendarInput(input);
     const epoch = calendarToEpoch(components, zone);
-    return new BigDate(epoch, zone);
+    return new Calendar(epoch, zone);
   }
 
   clone() {
-    return new BigDate(this.#epoch, this.#zone);
+    return new Calendar(this.#epoch, this.#zone);
   }
 
   zone(): Zone;
-  zone(value: Zone): BigDate;
+  zone(value: Zone): Calendar;
   zone(value?: Zone) {
     if (value === undefined) return this.#zone;
-    return new BigDate(this.#epoch, value);
+    return new Calendar(this.#epoch, value);
   }
 
   zone$(value: Zone) {
@@ -373,10 +373,10 @@ export class BigDate {
   }
 
   epoch(): Decimal;
-  epoch(value: DecimalLike): BigDate;
+  epoch(value: DecimalLike): Calendar;
   epoch(value?: DecimalLike) {
     if (value === undefined) return this.#epoch.clone();
-    return new BigDate(value, this.#zone);
+    return new Calendar(value, this.#zone);
   }
 
   epoch$(value: DecimalLike) {
@@ -404,7 +404,7 @@ export class BigDate {
       this.#epoch = epoch;
       return this;
     }
-    return new BigDate(epoch, this.#zone);
+    return new Calendar(epoch, this.#zone);
   }
 
   #withAlignedDate(adjuster: (current: CalendarComponents) => { year: bigint; month: bigint; day: bigint }) {
@@ -417,11 +417,11 @@ export class BigDate {
       weekday: current.weekday,
     };
     const epoch = calendarToEpoch(next, this.#zone);
-    return new BigDate(epoch, this.#zone);
+    return new Calendar(epoch, this.#zone);
   }
 
   year(): bigint;
-  year(value: bigint | number | DecimalLike): BigDate;
+  year(value: bigint | number | DecimalLike): Calendar;
   year(value?: bigint | number | DecimalLike) {
     if (value === undefined) return this.object().year;
     return this.#withComponents({ year: toBigInt(value, 'year') }, false);
@@ -432,7 +432,7 @@ export class BigDate {
   }
 
   month(): bigint;
-  month(value: bigint | number | DecimalLike): BigDate;
+  month(value: bigint | number | DecimalLike): Calendar;
   month(value?: bigint | number | DecimalLike) {
     if (value === undefined) return this.object().month;
     return this.#withComponents({ month: toBigInt(value, 'month') }, false);
@@ -443,7 +443,7 @@ export class BigDate {
   }
 
   day(): bigint;
-  day(value: bigint | number | DecimalLike): BigDate;
+  day(value: bigint | number | DecimalLike): Calendar;
   day(value?: bigint | number | DecimalLike) {
     if (value === undefined) return this.object().day;
     return this.#withComponents({ day: toBigInt(value, 'day') }, false);
@@ -454,7 +454,7 @@ export class BigDate {
   }
 
   hour(): bigint;
-  hour(value: bigint | number | DecimalLike): BigDate;
+  hour(value: bigint | number | DecimalLike): Calendar;
   hour(value?: bigint | number | DecimalLike) {
     if (value === undefined) return this.object().hour;
     return this.#withComponents({ hour: toBigInt(value, 'hour') }, false);
@@ -465,7 +465,7 @@ export class BigDate {
   }
 
   minutes(): bigint;
-  minutes(value: bigint | number | DecimalLike): BigDate;
+  minutes(value: bigint | number | DecimalLike): Calendar;
   minutes(value?: bigint | number | DecimalLike) {
     if (value === undefined) return this.object().minutes;
     return this.#withComponents({ minutes: toBigInt(value, 'minutes') }, false);
@@ -476,7 +476,7 @@ export class BigDate {
   }
 
   seconds(): Decimal;
-  seconds(value: DecimalLike): BigDate;
+  seconds(value: DecimalLike): Calendar;
   seconds(value?: DecimalLike) {
     if (value === undefined) return this.object().seconds.clone();
     return this.#withComponents({ seconds: Decimal(value) }, false);
@@ -536,7 +536,7 @@ export class BigDate {
   alignToSecond(step: DecimalLike) {
     const dayStart = this.alignToDay(1n);
     const aligned = this.#epoch.sub(dayStart.epoch()).floorBy(Decimal(step)).add(dayStart.epoch());
-    return new BigDate(aligned, this.#zone);
+    return new Calendar(aligned, this.#zone);
   }
 
   format(fmt: string) {
