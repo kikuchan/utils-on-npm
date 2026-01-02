@@ -60,6 +60,15 @@ export default defineConfig({
             url: 'https://github.com/kikuchan/utils-on-npm',
           },
           devDependencies: undefined,
+          peerDependencies: replaceRecursive(pkg.peerDependencies, (s, k) => {
+            if (s !== 'workspace:*') return s;
+
+            const ppkg = JSON.parse(
+              fs.readFileSync(path.join(root, 'packages', path.basename(k), 'package.json'), 'utf-8'),
+            );
+            if (ppkg?.version) return `^${ppkg.version}`;
+            return '*';
+          }),
           dependencies: replaceRecursive(pkg.dependencies, (s, k) => {
             if (s !== 'workspace:*') return s;
 

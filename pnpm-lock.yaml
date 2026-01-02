@@ -48,6 +48,12 @@ importers:
         specifier: ^4.0.13
         version: 4.0.13(@types/node@24.10.1)
 
+  packages/bigdate:
+    devDependencies:
+      '@kikuchan/decimal':
+        specifier: workspace:*
+        version: link:../decimal
+
   packages/binary-reader: {}
 
   packages/binary-struct:

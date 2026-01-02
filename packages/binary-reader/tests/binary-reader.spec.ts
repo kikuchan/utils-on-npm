@@ -40,6 +40,20 @@ describe('Core State', () => {
     br.skip(5); // should clamp at end
     expect(br.position).toBe(10);
   });
+
+  it('seeks by number and returns itself', () => {
+    const u8 = new Uint8Array([1, 2, 3]);
+    const br = new BinaryReader(u8);
+    expect(br.seek(2)).toBe(br);
+    expect(br.position).toBe(2);
+  });
+
+  it('ignores non-number non-string inputs', () => {
+    const u8 = new Uint8Array([1, 2, 3]);
+    const br = new BinaryReader(u8);
+    br.seek({} as unknown as number);
+    expect(br.position).toBe(0);
+  });
 });
 
 describe('Buffer Access', () => {
@@ -61,6 +75,27 @@ describe('Buffer Access', () => {
     expect(readRemain!.byteLength).toBe(2);
     expect(Array.from(new Uint8Array(readRemain!))).toEqual([30, 40]);
     expect(br.position).toBe(4);
+  });
+
+  it('reads zero bytes without advancing', () => {
+    const u8 = new Uint8Array([1, 2, 3, 4]);
+    const br = new BinaryReader(u8);
+    const buf = br.readBytes(0)!;
+    expect(buf.byteLength).toBe(0);
+    expect(br.position).toBe(0);
+  });
+
+  it('does not advance when peekBytes returns undefined', () => {
+    class NullPeekReader extends BinaryReader {
+      peekBytes() {
+        return undefined as unknown as Uint8Array;
+      }
+    }
+
+    const br = new NullPeekReader(new Uint8Array([1, 2, 3, 4]));
+    const buf = br.readBytes(2);
+    expect(buf).toBeUndefined();
+    expect(br.position).toBe(0);
   });
 });
 

@@ -1,0 +1,26 @@
+{
+  "name": "@kikuchan/bigdate",
+  "description": "Arbitrary precision date and time library using decimal numbers.",
+  "keywords": [
+    "decimal",
+    "arbitrary",
+    "date",
+    "bigint"
+  ],
+  "version": "0.0.1-alpha.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsdown",
+    "type:check": "tsc --noEmit"
+  },
+  "author": "kikuchan <kikuchan98@gmail.com>",
+  "homepage": "https://github.com/kikuchan/utils-on-npm#readme",
+  "license": "MIT",
+  "devDependencies": {
+    "@kikuchan/decimal": "workspace:*"
+  },
+  "peerDependencies": {
+    "@kikuchan/decimal": "workspace:*"
+  }
+}

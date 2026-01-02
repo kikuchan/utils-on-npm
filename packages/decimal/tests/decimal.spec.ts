@@ -306,12 +306,26 @@ describe('Decimal type guards', () => {
     expect(Decimal.isDecimalLike('42.00')).toBe(true);
     expect(Decimal.isDecimalLike(42)).toBe(true);
     expect(Decimal.isDecimalLike(42n)).toBe(true);
+    expect(Decimal.isDecimalLike(null)).toBe(false);
+    expect(Decimal.isDecimalLike(undefined)).toBe(false);
   });
 
   it('validates structured decimal-like payloads', () => {
     expect(Decimal.isDecimalLike(Decimal(7))).toBe(true);
     expect(Decimal.isDecimalLike({ coeff: 123n, digits: 4n })).toBe(true);
     expect(Decimal.isDecimalLike({ coeff: 123, digits: 4n })).toBe(false);
+    expect(Decimal.isDecimalLike({ coeff: 123n })).toBe(false);
+    expect(Decimal.isDecimalLike({ digits: 4n })).toBe(false);
+    expect(Decimal.isDecimalLike({ coeff: 123n, digits: 4 })).toBe(false);
+  });
+
+  it('exposes pow10 on the namespace', () => {
+    expect(Decimal.pow10(3).toString()).toBe('1000');
+  });
+
+  it('passes through nullish inputs for Decimal()', () => {
+    expect(Decimal(null)).toBeNull();
+    expect(Decimal(undefined)).toBeUndefined();
   });
 });
 
@@ -1210,6 +1224,13 @@ describe('Decimal boundaries', () => {
     expect(value.digits).toBe(6n);
     expect(compressed.toString()).toBe(Decimal('0.5').toString());
     expect(compressed.digits).toBe(1n);
+  });
+
+  it('keeps negative-scale values unchanged when rescaling without digits', () => {
+    const value = Decimal({ coeff: 123n, digits: -2n });
+    const rescaled = value.rescale();
+    expect(rescaled.toString()).toBe('12300');
+    expect(rescaled.digits).toBe(-2n);
   });
 
   it('computes logarithms with fractional digits', () => {

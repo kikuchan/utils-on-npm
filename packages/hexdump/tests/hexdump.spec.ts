@@ -146,6 +146,37 @@ describe('hexdump options', () => {
     expect(/\x1b\[38;5;178m/.test(out)).toBe(true);
   });
 
+  it("applies 'null' color for 0x00 (simple)", () => {
+    const out = hexdump(u8([0x00]), {
+      foldSize: 1,
+      printChars: false,
+      addrLength: 2,
+      color: 'simple',
+    });
+    expect(/\x1b\[38;5;244m/.test(out)).toBe(true);
+  });
+
+  it("applies 'ascii' color for printable characters (simple)", () => {
+    const out = hexdump(u8([0x41]), {
+      foldSize: 1,
+      printChars: true,
+      addrLength: 2,
+      color: 'simple',
+    });
+    expect(out).toContain('A');
+    expect(/\x1b\[m/.test(out)).toBe(true);
+  });
+
+  it("uses 'normal' color for DEL (0x7f) in simple mode", () => {
+    const out = hexdump(u8([0x7f]), {
+      foldSize: 1,
+      printChars: false,
+      addrLength: 2,
+      color: 'simple',
+    });
+    expect(out).toContain('7f');
+  });
+
   it("escapes ASCII with color:'html' and emits span", () => {
     const out = hexdump(u8([0x3c, 0x20]), {
       foldSize: 2,
