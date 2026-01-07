@@ -7,8 +7,10 @@ export type BinaryLike = Uint8Array | Uint8ClampedArray | ArrayBufferLike | Data
 export type Type<T, W = T, S = W> = {
   (init?: S): T;
   read(r: BinaryReader): T;
+  readAsync(r: BinaryReader): Promise<T>;
   write(w: BinaryWriter, data: W): void;
   parse(buffer: BinaryLike): T;
+  parseAsync(buffer: BinaryLike): Promise<T>;
   compose(): Uint8Array;
   compose(data: W): Uint8Array;
 
@@ -128,6 +130,13 @@ export function defineType<T, W = T, S = W, A extends readonly unknown[] = reado
         write(w, d);
         h.postW.forEach((f) => f(w, d));
       };
+      t.readAsync = async (r) => {
+        try {
+          return t.read(r);
+        } catch (err) {
+          return Promise.reject(err);
+        }
+      };
       t.compose = (...args: any[]) => {
         const w = new BinaryWriter();
         const obj = (args.length ? args[0] : undefined) as W;
@@ -137,6 +146,14 @@ export function defineType<T, W = T, S = W, A extends readonly unknown[] = reado
       t.parse = (buffer: BinaryLike) => {
         const r = new BinaryReader(buffer);
         return t.read(r);
+      };
+      t.parseAsync = async (buffer: BinaryLike) => {
+        try {
+          const r = new BinaryReader(buffer);
+          return await t.readAsync(r);
+        } catch (err) {
+          return Promise.reject(err);
+        }
       };
 
       t.tag = (s) => {

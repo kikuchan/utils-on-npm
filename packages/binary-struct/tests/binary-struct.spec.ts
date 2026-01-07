@@ -1,3 +1,4 @@
+import { BinaryReader } from '@kikuchan/binary-reader';
 import { describe, expect, it } from 'vitest';
 import type { Equal } from '../../../tests/_types';
 import { expectType } from '../../../tests/_types';
@@ -158,6 +159,34 @@ describe('binary-struct', () => {
     });
   });
 
+  describe('readAsync', () => {
+    it('resolves the same value as read', async () => {
+      const t = M.uint16le();
+      const reader = new BinaryReader(new Uint8Array([0x34, 0x12]));
+      await expect(t.readAsync(reader)).resolves.toBe(0x1234);
+    });
+
+    it('rejects on read errors', async () => {
+      const t = M.string();
+      const reader = new BinaryReader(new Uint8Array([0x61]));
+      await expect(t.readAsync(reader)).rejects.toThrow('string: decode failed or terminator missing');
+    });
+  });
+
+  describe('parseAsync', () => {
+    it('resolves the same value as parse', async () => {
+      const t = M.uint8();
+      const buffer = new Uint8Array([0x7f]);
+      await expect(t.parseAsync(buffer)).resolves.toBe(0x7f);
+    });
+
+    it('rejects on read errors', async () => {
+      const t = M.string();
+      const buffer = new Uint8Array([0x61, 0x62]);
+      await expect(t.parseAsync(buffer)).rejects.toThrow('string: decode failed or terminator missing');
+    });
+  });
+
   describe('Floats', () => {
     it('float16/32/64 LE/BE roundtrip', () => {
       const f16le = M.float16(true);
@@ -314,7 +343,7 @@ describe('binary-struct', () => {
       const badLengthType = M.defineType(() => ({
         init: () => 0,
         read: () => 'x' as unknown as number,
-        write: () => {},
+        write: () => { },
       }));
       const A = M.array(badLengthType(), M.uint8());
       expect(() => A.parse(new Uint8Array([0xff]))).toThrow(/invalid size specifier/);
@@ -584,7 +613,7 @@ describe('binary-struct', () => {
       const badLen = M.defineType<number>(() => ({
         init: () => 0,
         read: () => undefined as unknown as number,
-        write: () => {},
+        write: () => { },
       }));
       const Bad = M.string(badLen());
       expect(() => Bad.parse(new Uint8Array([0]))).toThrow(/invalid size specifier/);
