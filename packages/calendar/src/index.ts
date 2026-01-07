@@ -120,10 +120,7 @@ function nextToYearStep(year: bigint, step: Step, options?: YearStepOptions): bi
 
   const bcYear = -year + 1n;
   const previousBc = alignToStep(bcYear - 1n, step, 0n);
-  if (Array.isArray(step)) {
-    const hasPrevious = step.map((entry) => BigInt(entry)).some((entry) => entry === previousBc);
-    if (!hasPrevious) return 1n;
-  }
+  if (Array.isArray(step) && !step.map((entry) => BigInt(entry)).some((entry) => entry === previousBc)) return 1n;
   if (previousBc <= 0n) return 1n;
   return -(previousBc - 1n);
 }
