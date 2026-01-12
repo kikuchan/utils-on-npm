@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RoundingMode } from '../src/index.ts';
 import { Decimal, isDecimal, max, min, minmax, pow10 } from '../src/index.ts';
 
-const guardAllowance = (precision: bigint, base: NonNullable<Decimal>, value: NonNullable<Decimal>) => {
-  const target = precision < 0n ? 0 : Number(precision);
-  const baseScale = base.digits <= 0n ? 0 : Number(base.digits);
-  const valueScale = value.digits <= 0n ? 0 : Number(value.digits);
+const guardAllowance = (precision: number, base: NonNullable<Decimal>, value: NonNullable<Decimal>) => {
+  const target = precision < 0 ? 0 : precision;
+  const baseScale = base.digits <= 0 ? 0 : base.digits;
+  const valueScale = value.digits <= 0 ? 0 : value.digits;
   const minGuard = Math.max(baseScale, valueScale) + 1;
   let guard = Math.max(minGuard, 1);
   for (;;) {
@@ -13,7 +13,7 @@ const guardAllowance = (precision: bigint, base: NonNullable<Decimal>, value: No
     const steps = Math.ceil(frac * Math.log2(10)) + guard;
     const ops = Math.max(steps * 2, 1);
     const required = Math.max(minGuard, Math.ceil(Math.log10(ops)) + 1);
-    if (required <= guard) return BigInt(guard);
+    if (required <= guard) return guard;
     guard = required;
   }
 };
@@ -23,18 +23,35 @@ describe('Decimal construction', () => {
     const value = Decimal(123.45);
     expect(isDecimal(value)).toBe(true);
     expect(value.coeff).toBe(12345n);
-    expect(value.digits).toBe(2n);
+    expect(value.digits).toBe(2);
   });
 
   it('creates decimals from bigint payloads', () => {
-    const value = Decimal({ coeff: 987654321n, digits: 5n });
+    const value = Decimal({ coeff: 987654321n, digits: 5 });
     expect(value.coeff).toBe(987654321n);
-    expect(value.digits).toBe(5n);
+    expect(value.digits).toBe(5);
+  });
+
+  it('accepts bigint digit payloads in object inputs', () => {
+    const value = Decimal({ coeff: 123n, digits: 4n });
+    expect(value.coeff).toBe(123n);
+    expect(value.digits).toBe(4);
+  });
+
+  it('rejects non-integer digit payloads in object inputs', () => {
+    expect(() => Decimal({ coeff: 123n, digits: 1.5 } as never)).toThrow('Digits must be an integer');
   });
 
   it('returns existing decimal instances unchanged', () => {
     const value = Decimal(42);
     expect(Decimal(value)).toBe(value);
+  });
+
+  it('accepts digit overrides for bigint constructor calls', () => {
+    const DecimalImpl = (Decimal(1) as any).constructor;
+    const value = new DecimalImpl(12n, 3);
+    expect(value.coeff).toBe(12n);
+    expect(value.digits).toBe(3);
   });
 
   it('returns nullish inputs unchanged', () => {
@@ -50,10 +67,10 @@ describe('Decimal arithmetic', () => {
   });
 
   it('preserves exponent when sums cancel to zero', () => {
-    const left = Decimal({ coeff: 1234500n, digits: 4n });
-    const right = Decimal({ coeff: -1234500n, digits: 4n });
+    const left = Decimal({ coeff: 1234500n, digits: 4 });
+    const right = Decimal({ coeff: -1234500n, digits: 4 });
     const sum = left.add(right);
-    expect(sum.digits).toBe(4n);
+    expect(sum.digits).toBe(4);
     expect(sum.toString()).toBe('0.0000');
   });
 
@@ -86,13 +103,13 @@ describe('Decimal arithmetic', () => {
   it('treats negative digit counts as zero when dividing', () => {
     const quotient = Decimal(1).div(Decimal(3), -2n);
     expect(quotient.toString()).toBe('0');
-    expect(quotient.digits).toBe(0n);
+    expect(quotient.digits).toBe(0);
   });
 
   it('scales operands to align fractional digits when dividing', () => {
     const quotient = Decimal('1.23').div(3, 2n);
     expect(quotient.toString()).toBe('0.41');
-    expect(quotient.digits).toBe(2n);
+    expect(quotient.digits).toBe(2);
   });
 
   it('throws when dividing by zero', () => {
@@ -100,9 +117,9 @@ describe('Decimal arithmetic', () => {
   });
 
   it('preserves exponent when division result is zero', () => {
-    const dividend = Decimal({ coeff: 0n, digits: 4n });
+    const dividend = Decimal({ coeff: 0n, digits: 4 });
     const result = dividend.div(5);
-    expect(result.digits).toBe(4n);
+    expect(result.digits).toBe(4);
     expect(result.toString()).toBe('0.0000');
   });
 
@@ -178,9 +195,9 @@ describe('Decimal transforms', () => {
   });
 
   it('keeps the target exponent when truncating', () => {
-    const value = Decimal({ coeff: 375n, digits: 2n });
+    const value = Decimal({ coeff: 375n, digits: 2 });
     const truncated = value.trunc(2);
-    expect(truncated.digits).toBe(2n);
+    expect(truncated.digits).toBe(2);
     expect(truncated.toString()).toBe('3.75');
   });
 
@@ -279,14 +296,14 @@ describe('Decimal fractional helpers', () => {
     const result = value.frac$();
     expect(result).toBe(value);
     expect(value.toString()).toBe('0.3400');
-    expect(value.digits).toBe(4n);
+    expect(value.digits).toBe(4);
   });
 
   it('returns zero for integer values', () => {
-    const value = Decimal({ coeff: 12n, digits: -2n });
+    const value = Decimal({ coeff: 12n, digits: -2 });
     const fractional = value.frac();
     expect(fractional.toString()).toBe('0');
-    expect(fractional.digits).toBe(0n);
+    expect(fractional.digits).toBe(0);
   });
 
   it('preserves negative fractional signs', () => {
@@ -302,6 +319,15 @@ describe('Decimal type guards', () => {
     expect(Decimal.isDecimal(7)).toBe(false);
   });
 
+  it('detects decimal-like structs using isDecimalType', () => {
+    expect(Decimal.isDecimalType(Decimal(7))).toBe(true);
+    expect(Decimal.isDecimalType({ coeff: 123n, digits: 4 })).toBe(true);
+    expect(Decimal.isDecimalType({ coeff: 123n, digits: 4n })).toBe(true);
+    expect(Decimal.isDecimalType('7')).toBe(false);
+    expect(Decimal.isDecimalType(7)).toBe(false);
+    expect(Decimal.isDecimalType(7n)).toBe(false);
+  });
+
   it('recognizes supported literal inputs', () => {
     expect(Decimal.isDecimalLike('42.00')).toBe(true);
     expect(Decimal.isDecimalLike(42)).toBe(true);
@@ -312,11 +338,11 @@ describe('Decimal type guards', () => {
 
   it('validates structured decimal-like payloads', () => {
     expect(Decimal.isDecimalLike(Decimal(7))).toBe(true);
+    expect(Decimal.isDecimalLike({ coeff: 123n, digits: 4 })).toBe(true);
     expect(Decimal.isDecimalLike({ coeff: 123n, digits: 4n })).toBe(true);
-    expect(Decimal.isDecimalLike({ coeff: 123, digits: 4n })).toBe(false);
+    expect(Decimal.isDecimalLike({ coeff: 123, digits: 4 })).toBe(false);
     expect(Decimal.isDecimalLike({ coeff: 123n })).toBe(false);
-    expect(Decimal.isDecimalLike({ digits: 4n })).toBe(false);
-    expect(Decimal.isDecimalLike({ coeff: 123n, digits: 4 })).toBe(false);
+    expect(Decimal.isDecimalLike({ digits: 4 })).toBe(false);
   });
 
   it('exposes pow10 on the namespace', () => {
@@ -382,20 +408,26 @@ describe('pow10', () => {
   it('returns one when exponent is zero', () => {
     const value = pow10(0n);
     expect(value.toString()).toBe(Decimal(1).toString());
-    expect(value.digits).toBe(0n);
+    expect(value.digits).toBe(0);
+  });
+
+  it('normalizes negative zero exponents', () => {
+    const value = pow10(-0);
+    expect(value.digits).toBe(0);
+    expect(Object.is(value.digits, -0)).toBe(false);
   });
 
   it('represents positive exponents using negative digit counts', () => {
     const value = pow10(5n);
     expect(value.coeff).toBe(1n);
-    expect(value.digits).toBe(-5n);
+    expect(value.digits).toBe(-5);
     expect(value.number()).toBe(100000);
   });
 
   it('handles negative exponents with fractional results', () => {
     const value = pow10(-3n);
     expect(value.coeff).toBe(1n);
-    expect(value.digits).toBe(3n);
+    expect(value.digits).toBe(3);
     expect(value.toString()).toBe(Decimal('0.001').toString());
   });
 });
@@ -406,7 +438,7 @@ describe('Decimal shift10', () => {
     const shifted = original.shift10(2n);
     expect(shifted.toString()).toBe(Decimal('1234.5').toString());
     expect(shifted.coeff).toBe(original.coeff);
-    expect(shifted.digits).toBe(1n);
+    expect(shifted.digits).toBe(1);
     expect(original.toString()).toBe(Decimal('12.345').toString());
   });
 
@@ -414,7 +446,7 @@ describe('Decimal shift10', () => {
     const value = Decimal('9876.5');
     value.shift10$(-3);
     expect(value.toString()).toBe(Decimal('9.8765').toString());
-    expect(value.digits).toBe(4n);
+    expect(value.digits).toBe(4);
   });
 
   it('ignores zero shifts in place', () => {
@@ -431,9 +463,9 @@ describe('Decimal shift10', () => {
 
 describe('Decimal sign helpers', () => {
   it('identifies zero, positive, and negative values', () => {
-    const zero = Decimal({ coeff: 0n, digits: 3n });
-    const positive = Decimal({ coeff: 123n, digits: 2n });
-    const negative = Decimal({ coeff: -45n, digits: 1n });
+    const zero = Decimal({ coeff: 0n, digits: 3 });
+    const positive = Decimal({ coeff: 123n, digits: 2 });
+    const negative = Decimal({ coeff: -45n, digits: 1 });
     expect(zero.isZero()).toBe(true);
     expect(zero.isPositive()).toBe(false);
     expect(zero.isNegative()).toBe(false);
@@ -487,9 +519,9 @@ describe('Decimal truncation', () => {
   });
 
   it('preserves target digits when truncating zero', () => {
-    const value = Decimal({ coeff: 0n, digits: 5n });
+    const value = Decimal({ coeff: 0n, digits: 5 });
     const truncated = value.trunc(3);
-    expect(truncated.digits).toBe(3n);
+    expect(truncated.digits).toBe(3);
     expect(truncated.toString()).toBe('0.000');
   });
 });
@@ -503,7 +535,7 @@ describe('Decimal proximity checks', () => {
   });
 
   it('treats identical values as within zero tolerance', () => {
-    const value = Decimal({ coeff: 42000n, digits: 3n });
+    const value = Decimal({ coeff: 42000n, digits: 3 });
     expect(value.isCloseTo(value, 0)).toBe(true);
   });
 
@@ -521,7 +553,7 @@ describe('Decimal pow', () => {
   });
 
   it('handles fractional exponents with requested precision', () => {
-    const result = Decimal(2).pow(Decimal({ coeff: 15n, digits: 1n }), 9n);
+    const result = Decimal(2).pow(Decimal({ coeff: 15n, digits: 1 }), 9n);
     expect(result.number()).toBeCloseTo(Math.pow(2, 1.5), 8);
   });
 
@@ -534,27 +566,27 @@ describe('Decimal pow', () => {
   it('rounds reciprocal results to requested digits', () => {
     const result = Decimal(3).pow(-1n, 2n);
     expect(result.toString()).toBe('0.33');
-    expect(result.digits).toBe(2n);
+    expect(result.digits).toBe(2);
   });
 
   it('preserves zero exponent when base is zero', () => {
-    const base = Decimal({ coeff: 0n, digits: 4n });
+    const base = Decimal({ coeff: 0n, digits: 4 });
     const result = base.pow(2n, 8n);
-    expect(result.digits).toBe(4n);
+    expect(result.digits).toBe(4);
     expect(result.toString()).toBe('0.0000');
   });
 
   it('returns unity for zero exponents', () => {
     const result = Decimal('123.456').pow(0n, 6n);
     expect(result.toString()).toBe(Decimal(1).toString());
-    expect(result.digits).toBe(0n);
+    expect(result.digits).toBe(0);
   });
 
   it('matches high-precision reference for fractional exponents', () => {
     const base = Decimal('1.0000000001');
     const exponent = Decimal('0.9876543210123456789');
-    const digits = 60n;
-    const highPrecision = base.pow(exponent, digits + 30n).round(digits);
+    const digits = 60;
+    const highPrecision = base.pow(exponent, digits + 30).round(digits);
     const result = base.pow(exponent, digits);
     expect(result.round(digits).eq(highPrecision)).toBe(true);
   });
@@ -562,8 +594,8 @@ describe('Decimal pow', () => {
   it('preserves precision for negative fractional exponents', () => {
     const base = Decimal('7.8125');
     const exponent = Decimal('-0.27182818284590452353');
-    const digits = 50n;
-    const highPrecision = base.pow(exponent, digits + 30n).round(digits);
+    const digits = 50;
+    const highPrecision = base.pow(exponent, digits + 30).round(digits);
     const result = base.pow(exponent, digits);
     expect(result.round(digits).eq(highPrecision)).toBe(true);
   });
@@ -579,13 +611,13 @@ describe('Decimal logarithms', () => {
   it('computes logarithms for fractional values', () => {
     const value = Decimal(0.05);
     const result = value.log(Decimal(10), 6n);
-    const expected = Decimal({ coeff: -1301030n, digits: 6n });
+    const expected = Decimal({ coeff: -1301030n, digits: 6 });
     expect(result.isCloseTo(expected, 1e-6)).toBe(true);
   });
 
   it('supports bases between zero and one', () => {
     const value = Decimal(2);
-    const result = value.log(Decimal({ coeff: 5n, digits: 1n }), 8n);
+    const result = value.log(Decimal({ coeff: 5n, digits: 1 }), 8n);
     expect(result.isCloseTo(Decimal(-1), 1e-7)).toBe(true);
   });
 
@@ -639,21 +671,21 @@ describe('Decimal logarithms', () => {
   });
 
   it('returns logarithms with requested fractional digits', () => {
-    const digits = 6n;
+    const digits = 6;
     const result = Decimal(0.05).log(Decimal(10), digits);
     expect(result.digits >= digits).toBe(true);
     expect(result.round(digits).digits).toBe(digits);
   });
 
   it('rounds logarithm output to the requested fractional digits', () => {
-    const digits = 6n;
+    const digits = 6;
     const result = Decimal(0.05).log(Decimal(10), digits);
-    expect(result.digits <= digits + 6n).toBe(true);
+    expect(result.digits <= digits + 6).toBe(true);
     expect(result.round(digits).toString()).toBe('-1.301030');
   });
 
   it('keeps guard digits minimal when zero precision is requested', () => {
-    const digits = 0n;
+    const digits = 0;
     const base = Decimal(10);
     const value = Decimal(0.05);
     const result = value.log(base, digits);
@@ -662,7 +694,7 @@ describe('Decimal logarithms', () => {
   });
 
   it('scales guard digits logarithmically with requested precision', () => {
-    const digits = 80n;
+    const digits = 80;
     const base = Decimal(10);
     const value = Decimal(0.05);
     const result = value.log(base, digits);
@@ -686,7 +718,7 @@ describe('Decimal logarithms', () => {
 
   it('computes logarithms with fractional digit control for other bases', () => {
     const result = Decimal(3).log(Decimal(2), 6n);
-    const expected = Decimal({ coeff: 1584963n, digits: 6n });
+    const expected = Decimal({ coeff: 1584963n, digits: 6 });
     expect(result.isCloseTo(expected, 1e-6)).toBe(true);
   });
 });
@@ -723,13 +755,13 @@ describe('Decimal roots', () => {
     value.sqrt$(4n);
     expect(value.toString()).toBe('2.7000');
     expect(value.rescale().toString()).toBe('2.7');
-    expect(value.digits).toBe(4n);
+    expect(value.digits).toBe(4);
   });
 
   it('matches general root computation for sqrt$', () => {
     const input = Decimal('0.000625');
     const clone = input.clone();
-    const sqrtDigits = 8n;
+    const sqrtDigits = 8;
     input.sqrt$(sqrtDigits);
     const viaRoot = clone.root$(2n, sqrtDigits);
     expect(input.toFixed(sqrtDigits)).toBe(viaRoot.toFixed(sqrtDigits));
@@ -762,10 +794,19 @@ describe('Decimal roots', () => {
     expect(() => Decimal(-16).root(2n, 8n)).toThrowError();
   });
 
+  it('accepts numeric root degrees', () => {
+    const root = Decimal(16).root(2, 6n);
+    expect(root.toString()).toBe('4.000000');
+  });
+
+  it('rejects non-integer numeric root degrees', () => {
+    expect(() => Decimal(16).root(2.5, 6n)).toThrow('Root degree must be an integer');
+  });
+
   it('preserves exponent when root of zero is taken', () => {
-    const value = Decimal({ coeff: 0n, digits: 6n });
+    const value = Decimal({ coeff: 0n, digits: 6 });
     const root = value.root(3n, 6n);
-    expect(root.digits).toBe(6n);
+    expect(root.digits).toBe(6);
     expect(root.toString()).toBe('0.000000');
   });
 
@@ -779,59 +820,59 @@ describe('Decimal roots', () => {
   });
 
   it('computes large-magnitude roots without relying on floating guesses', () => {
-    const value = Decimal({ coeff: 1n, digits: -2000n });
+    const value = Decimal({ coeff: 1n, digits: -2000 });
     const root = value.root(2n, 12n);
-    const expected = Decimal({ coeff: 1n, digits: -1000n });
+    const expected = Decimal({ coeff: 1n, digits: -1000 });
     expect(root.eq(expected)).toBe(true);
   });
 
   it('computes tiny-magnitude roots without relying on floating guesses', () => {
-    const value = Decimal({ coeff: 1n, digits: 2000n });
+    const value = Decimal({ coeff: 1n, digits: 2000 });
     const root = value.root(2n, 1200n);
-    const expected = Decimal({ coeff: 1n, digits: 1000n });
+    const expected = Decimal({ coeff: 1n, digits: 1000 });
     expect(root.eq(expected)).toBe(true);
   });
 
   it('reseeds zero root estimates when coarse precision truncates guesses', () => {
-    const value = Decimal({ coeff: 1n, digits: 2000n });
+    const value = Decimal({ coeff: 1n, digits: 2000 });
     const root = value.root(10n, 0n);
     expect(root.toString()).toBe('0');
-    expect(root.digits).toBe(0n);
+    expect(root.digits).toBe(0);
   });
 
   it('handles high-degree roots for tiny magnitudes with coarse precision', () => {
-    const value = Decimal({ coeff: 1n, digits: 2000n });
+    const value = Decimal({ coeff: 1n, digits: 2000 });
     const root = value.root(20n, 0n);
     expect(root.toString()).toBe('0');
-    expect(root.digits).toBe(0n);
+    expect(root.digits).toBe(0);
   });
 
   it('matches high-precision power check for fractional roots', () => {
     const value = Decimal('98765.4321');
     const degree = 5n;
-    const digits = 60n;
+    const digits = 60;
     const root = value.root(degree, digits);
-    const recomposed = root.pow(degree, digits + 30n).rescale(digits);
-    const tolerance = pow10(-(digits - 4n));
+    const recomposed = root.pow(degree, digits + 30).rescale(digits);
+    const tolerance = pow10(-(digits - 4));
     expect(recomposed.isCloseTo(value.rescale(digits), tolerance)).toBe(true);
   });
 
   it('retains precision for odd roots of negatives', () => {
     const value = Decimal('-42.424242');
     const degree = 3n;
-    const digits = 50n;
+    const digits = 50;
     const root = value.root(degree, digits);
-    const recomposed = root.pow(degree, digits + 30n).rescale(digits);
-    const tolerance = pow10(-(digits - 4n));
+    const recomposed = root.pow(degree, digits + 30).rescale(digits);
+    const tolerance = pow10(-(digits - 4));
     expect(recomposed.isCloseTo(value.rescale(digits), tolerance)).toBe(true);
   });
 
   it('falls back to order-based estimates when floating guesses overflow', () => {
     const powSpy = vi.spyOn(Math, 'pow');
-    const huge = Decimal({ coeff: 1n, digits: -5000n });
+    const huge = Decimal({ coeff: 1n, digits: -5000 });
     const root = huge.root(2n, 4n);
     expect(powSpy).not.toHaveBeenCalled();
-    expect(root.digits).toBe(4n);
+    expect(root.digits).toBe(4);
     powSpy.mockRestore();
   });
 
@@ -932,7 +973,7 @@ describe('Decimal modular helpers', () => {
 describe('Decimal comparisons', () => {
   it('compares equality and inequality', () => {
     const a = Decimal(1.234);
-    const b = Decimal({ coeff: 1234n, digits: 3n });
+    const b = Decimal({ coeff: 1234n, digits: 3 });
     expect(a.eq(b)).toBe(true);
     expect(a.neq(Decimal(2))).toBe(true);
   });
@@ -965,12 +1006,12 @@ describe('Decimal comparisons', () => {
 
 describe('Decimal presentation', () => {
   it('renders to string with trailing zeros', () => {
-    const value = Decimal({ coeff: 12300n, digits: 2n });
+    const value = Decimal({ coeff: 12300n, digits: 2 });
     expect(value.toString()).toBe('123.00');
   });
 
   it('renders zero respecting exponent', () => {
-    const value = Decimal({ coeff: 0n, digits: 3n });
+    const value = Decimal({ coeff: 0n, digits: 3 });
     expect(value.toString()).toBe('0.000');
   });
 
@@ -985,7 +1026,7 @@ describe('Decimal presentation', () => {
   });
 
   it('throws when decimal precision exceeds safe conversion range', () => {
-    const huge = Decimal({ coeff: 1n, digits: 9007199254740991n + 1n });
+    const huge = Decimal({ coeff: 1n, digits: 9007199254740992 });
     expect(() => huge.toString()).toThrow(RangeError);
   });
 
@@ -1078,12 +1119,18 @@ describe('NumberLike utilities', () => {
 
 describe('Decimal numeric accessors', () => {
   it('produces native number output', () => {
-    const value = Decimal({ coeff: 314159n, digits: 5n });
+    const value = Decimal({ coeff: 314159n, digits: 5 });
     expect(value.number()).toBeCloseTo(3.14159);
   });
 
+  it('throws when integer scaling uses non-integer digits', () => {
+    const value = Decimal(1) as Decimal & { digits: number };
+    value.digits = -1.5;
+    expect(() => value.integer()).toThrow();
+  });
+
   it('returns integer part as bigint', () => {
-    const value = Decimal({ coeff: -98765n, digits: 2n });
+    const value = Decimal({ coeff: -98765n, digits: 2 });
     expect(value.integer()).toBe(-987n);
   });
 
@@ -1135,6 +1182,11 @@ describe('Decimal boundaries', () => {
     expect(() => Decimal('1e')).toThrow('Invalid number');
   });
 
+  it('rejects exponent values that exceed the safe integer range', () => {
+    const huge = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    expect(() => Decimal(`1e${huge}`)).toThrow('Exponent is out of range');
+  });
+
   it('rejects unsupported input payloads', () => {
     expect(() => Decimal({} as unknown as never)).toThrow('Invalid input type for Decimal');
   });
@@ -1161,9 +1213,14 @@ describe('Decimal boundaries', () => {
   });
 
   it('throws when raising negative bases to fractional exponents', () => {
-    expect(() => Decimal(-4).pow(Decimal({ coeff: 5n, digits: 1n }), 8n)).toThrow(
+    expect(() => Decimal(-4).pow(Decimal({ coeff: 5n, digits: 1 }), 8n)).toThrow(
       'Fractional exponent requires non-negative base',
     );
+  });
+
+  it('rejects pow10 exponents beyond safe integer range', () => {
+    const huge = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    expect(() => Decimal.pow10(huge)).toThrow('Exponent must be an integer');
   });
 
   it('returns one when exponent is zero', () => {
@@ -1172,9 +1229,9 @@ describe('Decimal boundaries', () => {
   });
 
   it('handles positive-exponent integer parts when exponentiating', () => {
-    const exponent = Decimal({ coeff: 12n, digits: -1n });
+    const exponent = Decimal({ coeff: 12n, digits: -1 });
     const result = Decimal(2).pow(exponent, 20n);
-    const expected = Decimal({ coeff: 1n << 120n, digits: 0n });
+    const expected = Decimal({ coeff: 1n << 120n, digits: 0 });
     expect(result.eq(expected)).toBe(true);
   });
 
@@ -1186,51 +1243,51 @@ describe('Decimal boundaries', () => {
   });
 
   it('respects degree-one roots with rescaling', () => {
-    const value = Decimal({ coeff: 1234000n, digits: 6n });
+    const value = Decimal({ coeff: 1234000n, digits: 6 });
     const result = value.root(1n, 8n);
     expect(result.toString()).toBe(Decimal('1.23400000').toString());
-    expect(result.digits).toBe(8n);
+    expect(result.digits).toBe(8);
   });
 
   it('keeps scale when requesting coarser degree-one root precision', () => {
-    const value = Decimal({ coeff: 1234000n, digits: 6n });
+    const value = Decimal({ coeff: 1234000n, digits: 6 });
     const result = value.root(1n, 5n);
     expect(result.toString()).toBe(Decimal('1.234000').toString());
-    expect(result.digits).toBe(6n);
-    expect(value.digits).toBe(6n);
+    expect(result.digits).toBe(6);
+    expect(value.digits).toBe(6);
   });
 
   it('retains requested digits when dividing with trailing zeros', () => {
     const result = Decimal(1).div(Decimal(2), 4n);
     expect(result.toString()).toBe(Decimal('0.5000').toString());
-    expect(result.digits).toBe(4n);
+    expect(result.digits).toBe(4);
   });
 
   it('retains requested digits when raising to negative exponents', () => {
     const result = Decimal(2).pow(-1n, 6n);
     expect(result.toString()).toBe(Decimal('0.500000').toString());
-    expect(result.digits).toBe(6n);
+    expect(result.digits).toBe(6);
   });
 
   it('retains requested digits when taking roots with trailing zeros', () => {
     const result = Decimal('1.440000').root(2n, 6n);
     expect(result.toString()).toBe(Decimal('1.200000').toString());
-    expect(result.digits).toBe(6n);
+    expect(result.digits).toBe(6);
   });
 
   it('rescale compresses digits only when explicitly invoked', () => {
     const value = Decimal(1).div(2, 6n);
     const compressed = value.rescale();
-    expect(value.digits).toBe(6n);
+    expect(value.digits).toBe(6);
     expect(compressed.toString()).toBe(Decimal('0.5').toString());
-    expect(compressed.digits).toBe(1n);
+    expect(compressed.digits).toBe(1);
   });
 
   it('keeps negative-scale values unchanged when rescaling without digits', () => {
-    const value = Decimal({ coeff: 123n, digits: -2n });
+    const value = Decimal({ coeff: 123n, digits: -2 });
     const rescaled = value.rescale();
     expect(rescaled.toString()).toBe('12300');
-    expect(rescaled.digits).toBe(-2n);
+    expect(rescaled.digits).toBe(-2);
   });
 
   it('computes logarithms with fractional digits', () => {
@@ -1238,13 +1295,51 @@ describe('Decimal boundaries', () => {
     expect(result.number()).toBeCloseTo(Math.log2(3), 5);
   });
 
+  it('accumulates fractional logarithm terms', () => {
+    const proto = Object.getPrototypeOf(Decimal(1)) as { add$: (value: DecimalLike) => DecimalLike };
+    const addSpy = vi.spyOn(proto, 'add$');
+    const result = Decimal(3).log(10, 8n);
+    expect(result.number()).toBeCloseTo(Math.log10(3), 6);
+    expect(addSpy).toHaveBeenCalled();
+    addSpy.mockRestore();
+  });
+
+  it('rejects invalid pow5n inputs during logarithms', () => {
+    const target = 8;
+    const baseDigits = Decimal(10).digits;
+    const valueDigits = Decimal(3).digits;
+    const minGuard = Math.max(Math.max(0, baseDigits), Math.max(0, valueDigits)) + 1;
+    let guardPrec = Math.max(minGuard, 1);
+    let fracPrec = target + guardPrec;
+    let bits = 0;
+    for (;;) {
+      bits = Math.ceil(fracPrec * Math.log2(10)) + guardPrec;
+      const ops = Math.max(bits * 2, 1);
+      const required = Math.max(minGuard, Math.ceil(Math.log10(ops)) + 1);
+      if (required <= guardPrec) break;
+      guardPrec = required;
+      fracPrec = target + guardPrec;
+    }
+
+    const originalIsInteger = Number.isInteger;
+    Number.isInteger = (value: unknown): boolean => {
+      if (value === bits) return false;
+      return originalIsInteger(value as never);
+    };
+    try {
+      expect(() => Decimal(3).log(10, target)).toThrow();
+    } finally {
+      Number.isInteger = originalIsInteger;
+    }
+  });
+
   it('converts positive exponent decimals to strings without decimal points', () => {
-    const value = Decimal({ coeff: 123n, digits: -2n });
+    const value = Decimal({ coeff: 123n, digits: -2 });
     expect(value.toString()).toBe('12300');
   });
 
   it('returns integer values respecting positive exponents', () => {
-    const value = Decimal({ coeff: 12n, digits: -2n });
+    const value = Decimal({ coeff: 12n, digits: -2 });
     expect(value.integer()).toBe(1200n);
   });
 
@@ -1260,16 +1355,16 @@ describe('Decimal boundaries', () => {
   });
 
   it('compresses zero to standard form with rescale', () => {
-    const value = Decimal({ coeff: 0n, digits: 5n });
+    const value = Decimal({ coeff: 0n, digits: 5 });
     const compressed = value.rescale();
-    expect(compressed.digits).toBe(0n);
+    expect(compressed.digits).toBe(0);
     expect(compressed.toString()).toBe('0');
   });
 
   it('compresses zero with negative exponent to standard form with rescale', () => {
-    const value = Decimal({ coeff: 0n, digits: -5n });
+    const value = Decimal({ coeff: 0n, digits: -5 });
     const compressed = value.rescale();
-    expect(compressed.digits).toBe(0n);
+    expect(compressed.digits).toBe(0);
     expect(compressed.toString()).toBe('0');
   });
 });

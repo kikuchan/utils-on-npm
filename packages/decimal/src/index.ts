@@ -4,14 +4,14 @@ export interface DecimalInstance {
   readonly [__brand]: never;
 }
 
-export type DecimalLike = number | string | bigint | DecimalInstance | { coeff: bigint; digits: bigint };
+export type DecimalLike = number | string | bigint | DecimalInstance | { coeff: bigint; digits: number };
 export type RoundingMode = 'trunc' | 'floor' | 'ceil' | 'round';
 
 export interface Decimal {
   readonly [__brand]: never;
 
   coeff: bigint;
-  digits: bigint;
+  digits: number;
 
   // Copying
   clone(): Decimal;
@@ -105,29 +105,36 @@ export interface Decimal {
   integer(): bigint;
 }
 
-function ensureInteger(value: bigint | number, message = 'Digits must be an integer'): bigint {
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || !Number.isInteger(value)) throw new Error(message);
-    return BigInt(value);
+function ensureInteger(value: bigint | number, message = 'Digits must be an integer'): number {
+  if (typeof value === 'bigint') {
+    const v = Number(value);
+    const max = Number.MAX_SAFE_INTEGER;
+    if (v > max || v < -max) throw new Error(message);
+    return v;
   }
+  if (!Number.isFinite(value) || !Number.isInteger(value)) throw new Error(message);
   return value;
 }
 
-function ensureDigits(value: bigint | number): bigint {
+function ensureDigits(value: bigint | number): number {
   const result = ensureInteger(value);
-  if (result < 0n) return 0n;
+  if (result < 0) return 0;
   return result;
 }
 
-function pow5n(n: bigint | number): bigint {
-  const nn = Number(n);
-  if (nn < pow5nCache.length) return pow5nCache[nn];
+function ensureBigInt(value: bigint | number, message = 'Value must be an integer'): bigint {
+  if (typeof value === 'bigint') return value;
+  if (!Number.isFinite(value) || !Number.isInteger(value)) throw new Error(message);
+  return BigInt(value);
+}
+
+function pow5n(n: number): bigint {
+  if (n < pow5nCache.length) return pow5nCache[n];
   return 5n ** BigInt(n);
 }
 
-function pow10n(n: bigint | number): bigint {
-  const nn = Number(n);
-  if (nn < pow10nCache.length) return pow10nCache[nn];
+function pow10n(n: number): bigint {
+  if (n < pow10nCache.length) return pow10nCache[n];
   return 10n ** BigInt(n);
 }
 
@@ -145,7 +152,7 @@ function powInt(base: Decimal, exponentInput: bigint | number, digits?: bigint |
   return result;
 }
 
-function powFrac(base: Decimal, fractional: Decimal, digits: bigint, digitsCount: number): Decimal {
+function powFrac(base: Decimal, fractional: Decimal, digits: number, digitsCount: number): Decimal {
   if (fractional.isZero() || digitsCount <= 0) return new DecimalImpl(1n);
   const { guardPrec, rootPrec } = estimatePowFractionalSettings(digits, digitsCount);
   const digitsString = abs(fractional.coeff).toString().padStart(digitsCount, '0');
@@ -165,7 +172,7 @@ function abs(value: bigint): bigint {
   return value < 0n ? -value : value;
 }
 
-function parsePlainDecimal(input: string): { coeff: bigint; digits: bigint } {
+function parsePlainDecimal(input: string): { coeff: bigint; digits: number } {
   if (input === '') throw new Error('Invalid number');
   let sign = 1n;
   let str = input;
@@ -177,21 +184,28 @@ function parsePlainDecimal(input: string): { coeff: bigint; digits: bigint } {
   }
   if (str === '') throw new Error('Invalid number');
   const dotIndex = str.indexOf('.');
-  let intPart = str;
-  let fracPart = '';
-  if (dotIndex >= 0) {
-    intPart = str.slice(0, dotIndex);
-    fracPart = str.slice(dotIndex + 1);
+  const digits = dotIndex >= 0 ? str.length - dotIndex - 1 : 0;
+  let firstNonZero = -1;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code === 46) continue;
+    if (code !== 48) {
+      firstNonZero = i;
+      break;
+    }
   }
-  if (intPart === '') intPart = '0';
-  const combined = (intPart + fracPart).replace(/^0+/, '');
-  const coeffStr = combined === '' ? '0' : combined;
+  if (firstNonZero === -1) return { coeff: 0n, digits };
+  let coeffStr: string;
+  if (dotIndex < 0 || firstNonZero > dotIndex) {
+    coeffStr = str.slice(firstNonZero);
+  } else {
+    coeffStr = str.slice(firstNonZero, dotIndex) + str.slice(dotIndex + 1);
+  }
   const coeff = sign * BigInt(coeffStr);
-  const digits = BigInt(fracPart.length);
   return { coeff, digits };
 }
 
-function parseDecimalString(value: string): { coeff: bigint; digits: bigint } {
+function parseDecimalString(value: string): { coeff: bigint; digits: number } {
   const exponentIndex = value.search(/[eE]/);
   if (exponentIndex === -1) return parsePlainDecimal(value);
   const basePart = value.slice(0, exponentIndex);
@@ -199,7 +213,9 @@ function parseDecimalString(value: string): { coeff: bigint; digits: bigint } {
   if (exponentPart.trim() === '') throw new Error('Invalid number');
   const { coeff, digits } = parsePlainDecimal(basePart);
   const adjustment = BigInt(exponentPart);
-  return { coeff, digits: digits - adjustment };
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  if (adjustment > max || adjustment < -max) throw new Error('Exponent is out of range');
+  return { coeff, digits: digits - Number(adjustment) };
 }
 
 function alignForOperation(a: Decimal, b: Decimal) {
@@ -208,7 +224,7 @@ function alignForOperation(a: Decimal, b: Decimal) {
     return {
       digits: a.digits,
       aCoeff: a.coeff,
-      bCoeff: diff === 0n ? b.coeff : b.coeff * pow10n(diff),
+      bCoeff: diff === 0 ? b.coeff : b.coeff * pow10n(diff),
     };
   }
   const diff = b.digits - a.digits;
@@ -219,12 +235,12 @@ function alignForOperation(a: Decimal, b: Decimal) {
   };
 }
 
-function toBoundedNonNegativeNumber(value: bigint): number {
-  const numeric = Math.max(0, Number(value));
+function toBoundedNonNegativeNumber(value: number): number {
+  const numeric = Math.max(0, value);
   return Math.min(Number.MAX_SAFE_INTEGER, numeric);
 }
 
-function estimateLogGuardSettings(target: number, baseDigits: bigint, valueDigits: bigint) {
+function estimateLogGuardSettings(target: number, baseDigits: number, valueDigits: number) {
   const baseScale = toBoundedNonNegativeNumber(baseDigits);
   const valueScale = toBoundedNonNegativeNumber(valueDigits);
   const minGuard = Math.max(baseScale, valueScale) + 1;
@@ -243,19 +259,19 @@ function estimateLogGuardSettings(target: number, baseDigits: bigint, valueDigit
   }
 }
 
-function estimatePowFractionalSettings(target: bigint, digitsCount: number) {
+function estimatePowFractionalSettings(target: number, digitsCount: number) {
   const count = Math.max(1, digitsCount);
   const guardExtra = Math.max(6, Math.ceil(Math.log10(count * 4)) + 2);
-  const guardPrec = target + BigInt(guardExtra);
-  const rootPrec = guardPrec + BigInt(Math.max(guardExtra, 6));
+  const guardPrec = target + guardExtra;
+  const rootPrec = guardPrec + Math.max(guardExtra, 6);
   return { guardPrec, rootPrec };
 }
 
-function estimateRootIterSettings(target: bigint, degree: bigint) {
+function estimateRootIterSettings(target: number, degree: bigint) {
   const degreeDigits = Math.max(1, degree.toString().replace('-', '').length);
   const extra = Math.max(12, degreeDigits + 4);
-  const iterPrec = target + BigInt(extra);
-  const stopShift = target + 2n;
+  const iterPrec = target + extra;
+  const stopShift = target + 2;
   return { iterPrec, stopShift };
 }
 
@@ -317,54 +333,63 @@ class DecimalImpl implements Decimal {
   declare readonly [__brand]: never;
 
   public coeff: bigint;
-  public digits: bigint;
+  public digits: number;
 
-  constructor(v: DecimalLike, digitsOverride?: bigint) {
-    if (typeof v === 'number') {
-      if (v !== v || v === Infinity || v === -Infinity) throw new Error('Invalid number');
-      ({ coeff: this.coeff, digits: this.digits } = parseDecimalString(v.toString()));
-    } else if (typeof v === 'string') {
-      const trimmed = v.trim();
-      if (trimmed === '') throw new Error('Invalid number');
-      ({ coeff: this.coeff, digits: this.digits } = parseDecimalString(trimmed));
-    } else if (typeof v === 'bigint') {
-      this.coeff = v;
-      this.digits = digitsOverride ?? 0n;
-    } else if (
-      typeof v === 'object' &&
-      v !== null &&
-      'coeff' in v &&
-      typeof v.coeff === 'bigint' &&
-      'digits' in v &&
-      typeof v.digits === 'bigint'
-    ) {
+  constructor(v: DecimalLike, digitsOverride?: bigint | number) {
+    if (v instanceof DecimalImpl) {
       this.coeff = v.coeff;
       this.digits = v.digits;
-    } else {
-      throw new Error('Invalid input type for Decimal');
+      return;
     }
+
+    switch (typeof v) {
+      case 'number':
+        if (v !== v || v === Infinity || v === -Infinity) throw new Error('Invalid number');
+        ({ coeff: this.coeff, digits: this.digits } = parseDecimalString(v.toString()));
+        return;
+      case 'string':
+        {
+          const value = v.trim();
+          if (value === '') throw new Error('Invalid number');
+          ({ coeff: this.coeff, digits: this.digits } = parseDecimalString(value));
+        }
+        return;
+      case 'bigint':
+        this.coeff = v;
+        this.digits = digitsOverride == null ? 0 : ensureInteger(digitsOverride);
+        return;
+      case 'object':
+        if (v && 'coeff' in v && typeof v.coeff === 'bigint' && 'digits' in v) {
+          this.coeff = v.coeff;
+          this.digits = ensureInteger(v.digits);
+          return;
+        }
+    }
+
+    throw new Error('Invalid input type for Decimal');
   }
 
   clone(): DecimalImpl {
-    return new DecimalImpl({ coeff: this.coeff, digits: this.digits });
+    return new DecimalImpl(this);
   }
 
-  #set$(coeff: bigint | Decimal, digits: bigint = 0n): this {
+  #set$(coeff: bigint | Decimal, digits: number = 0): this {
     if (isDecimal(coeff)) {
-      digits = coeff.digits;
-      coeff = coeff.coeff;
+      this.digits = coeff.digits;
+      this.coeff = coeff.coeff;
+      return this;
     }
     this.coeff = coeff;
     this.digits = digits;
     return this;
   }
 
-  #div$(divisor: Decimal, targetDigits: bigint, mode: RoundingMode): this {
+  #div$(divisor: Decimal, targetDigits: number, mode: RoundingMode): this {
     let numerator = this.coeff;
     let denominator = divisor.coeff;
 
     const shift = divisor.digits + targetDigits - this.digits;
-    if (shift >= 0n) {
+    if (shift >= 0) {
       numerator *= pow10n(shift);
     } else {
       denominator *= pow10n(-shift);
@@ -416,13 +441,13 @@ class DecimalImpl implements Decimal {
 
   #stripTrailingZeros$(): this {
     if (this.coeff === 0n) {
-      this.digits = 0n;
+      this.digits = 0;
       return this;
     }
-    if (this.digits <= 0n) return this;
-    while (this.digits > 0n && this.coeff % 10n === 0n) {
+    if (this.digits <= 0) return this;
+    while (this.digits > 0 && this.coeff % 10n === 0n) {
       this.coeff /= 10n;
-      this.digits -= 1n;
+      this.digits -= 1;
     }
     return this;
   }
@@ -441,7 +466,7 @@ class DecimalImpl implements Decimal {
     const multiple = new DecimalImpl(step).abs();
     if (multiple.isZero()) throw new Error('Cannot align to zero');
 
-    return this.div$(multiple, 0n, mode).mul$(multiple);
+    return this.div$(multiple, 0, mode).mul$(multiple);
   }
 
   roundBy(step: DecimalLike, mode: RoundingMode = 'round'): DecimalImpl {
@@ -518,7 +543,7 @@ class DecimalImpl implements Decimal {
   }
 
   split$(digits?: bigint | number, mode: RoundingMode = 'floor'): [DecimalImpl, DecimalImpl] {
-    return this.#splitWith((value) => value.#rescale$(digits ?? 0n, mode));
+    return this.#splitWith((value) => value.#rescale$(digits ?? 0, mode));
   }
 
   split(digits?: bigint | number, mode: RoundingMode = 'floor'): [Decimal, Decimal] {
@@ -534,9 +559,9 @@ class DecimalImpl implements Decimal {
   }
 
   frac$(): this {
-    if (this.digits <= 0n) {
+    if (this.digits <= 0) {
       this.coeff = 0n;
-      this.digits = 0n;
+      this.digits = 0;
       return this;
     }
     const scale = pow10n(this.digits);
@@ -609,7 +634,7 @@ class DecimalImpl implements Decimal {
 
   shift10$(exponent: bigint | number): this {
     const normalized = ensureInteger(exponent, 'Shift amount must be an integer');
-    if (normalized === 0n) return this;
+    if (normalized === 0) return this;
     this.digits -= normalized;
     return this;
   }
@@ -757,13 +782,13 @@ class DecimalImpl implements Decimal {
     const negExp = expVal.isNegative();
     const [intPart, fracPart] = expVal.abs().split$();
     const base = this.clone();
-    const fracScale = fracPart.isZero() ? 0 : Number(fracPart.digits);
+    const fracScale = fracPart.isZero() ? 0 : fracPart.digits;
     if (base.isNegative() && fracScale > 0) throw new Error('Fractional exponent requires non-negative base');
 
     const result = powInt(base, intPart.coeff);
     let fracPrec = prec;
     if (fracScale > 0) {
-      const fracPad = BigInt(Math.max(4, fracScale));
+      const fracPad = Math.max(4, fracScale);
       fracPrec = prec + fracPad;
     }
     const fracFactor = powFrac(base, fracPart, fracPrec, fracScale);
@@ -780,7 +805,7 @@ class DecimalImpl implements Decimal {
       this.#set$(result);
     }
 
-    this.round$(outPrec, outPrec === 0n);
+    this.round$(outPrec, outPrec === 0);
     return this;
   }
 
@@ -789,7 +814,7 @@ class DecimalImpl implements Decimal {
   }
 
   root$(degreeInput: bigint | number, digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    const degree = ensureInteger(degreeInput, 'Root degree must be an integer');
+    const degree = ensureBigInt(degreeInput, 'Root degree must be an integer');
     if (degree <= 0n) throw new Error('Invalid root degree');
     const prec = ensureDigits(digits);
     if (degree === 1n) {
@@ -837,7 +862,7 @@ class DecimalImpl implements Decimal {
     }
 
     this.round$(iterPrec, true);
-    this.round$(prec, prec === 0n);
+    this.round$(prec, prec === 0);
     if (wasNegative) this.neg$();
     return this;
   }
@@ -855,7 +880,7 @@ class DecimalImpl implements Decimal {
   }
 
   log$(base: DecimalLike, digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    const precision = Number(ensureDigits(digits));
+    const precision = ensureDigits(digits);
     const baseValue = new DecimalImpl(base);
 
     if (!this.isPositive()) throw new Error('Logarithm argument must be positive');
@@ -881,7 +906,7 @@ class DecimalImpl implements Decimal {
         }
       }
       if (flags !== 0n) {
-        this.add$({ coeff: flags * pow5n(bits), digits: BigInt(bits) });
+        this.add$({ coeff: flags * pow5n(bits), digits: bits });
       }
     }
 
@@ -898,7 +923,7 @@ class DecimalImpl implements Decimal {
   sign$() {
     if (this.isZero()) return this;
     this.coeff = this.coeff < 0n ? -1n : 1n;
-    this.digits = 0n;
+    this.digits = 0;
     return this;
   }
 
@@ -908,28 +933,28 @@ class DecimalImpl implements Decimal {
 
   order(): bigint {
     if (this.isZero()) throw new RangeError('order undefined for 0');
-    return BigInt(abs(this.coeff).toString().length) - 1n - this.digits;
+    return BigInt(abs(this.coeff).toString().length) - 1n - BigInt(this.digits);
   }
 
   toFixed(fractionDigits: bigint | number): string {
     const errorMessage = 'Fraction digits must be a non-negative integer';
     const digits = ensureInteger(fractionDigits, errorMessage);
-    if (digits < 0n) throw new Error(errorMessage);
+    if (digits < 0) throw new Error(errorMessage);
     return this.round(digits, true).toString();
   }
 
   toString(): string {
     if (this.coeff === 0n) {
-      if (this.digits <= 0n) return '0';
-      return `0.${'0'.repeat(Number(this.digits))}`;
+      if (this.digits <= 0) return '0';
+      return `0.${'0'.repeat(this.digits)}`;
     }
     const negative = this.coeff < 0n;
     const sign = negative ? '-' : '';
     const coeffDigits = (negative ? -this.coeff : this.coeff).toString();
-    if (this.digits <= 0n) {
-      return `${sign}${coeffDigits}${'0'.repeat(Number(-this.digits))}`;
+    if (this.digits <= 0) {
+      return `${sign}${coeffDigits}${'0'.repeat(-this.digits)}`;
     }
-    const decimals = Number(this.digits);
+    const decimals = this.digits;
     const len = coeffDigits.length;
     if (len > decimals) {
       const split = len - decimals;
@@ -953,14 +978,14 @@ class DecimalImpl implements Decimal {
   }
 
   integer(): bigint {
-    if (this.digits <= 0n) {
+    if (this.digits <= 0) {
       return this.coeff * pow10n(-this.digits);
     }
     return this.coeff / pow10n(this.digits);
   }
 }
 
-const DEFAULT_DIVISION_PRECISION = 18n;
+const DEFAULT_DIVISION_PRECISION = 18;
 const LOG_BINARY_PER_DECIMAL = Math.log2(10);
 
 const DECIMAL_ONE = new DecimalImpl(1n);
@@ -988,64 +1013,85 @@ export function Decimal(v: DecimalLike | undefined | null): Decimal | undefined 
   return new DecimalImpl(v) as Decimal;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-namespace
-export namespace Decimal {
-  export function isDecimal(v: unknown): v is Decimal {
-    return v instanceof DecimalImpl;
-  }
-
-  export function isDecimalLike(v: unknown): v is DecimalLike {
-    if (isDecimal(v)) return true;
-    if (typeof v === 'string') return true;
-    if (typeof v === 'number') return true;
-    if (typeof v === 'bigint') return true;
-    if (
-      typeof v === 'object' &&
-      v &&
-      'coeff' in v &&
-      'digits' in v &&
-      typeof v.coeff === 'bigint' &&
-      typeof v.digits === 'bigint'
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  export function pow10(n: bigint | number): Decimal {
-    return new DecimalImpl({ coeff: 1n, digits: -BigInt(n) });
-  }
-
-  export function minmax(...values: (DecimalLike | null | undefined)[]): [Decimal | null, Decimal | null] {
-    let minValue: Decimal | null = null;
-    let maxValue: Decimal | null = null;
-    for (let i = 0; i < values.length; i++) {
-      const candidate = Decimal(values[i]);
-      if (candidate == null) continue;
-      if (minValue === null || candidate.lt(minValue)) minValue = candidate;
-      if (maxValue === null || candidate.gt(maxValue)) maxValue = candidate;
-    }
-    return [minValue, maxValue];
-  }
-
-  export function min(...values: (DecimalLike | null | undefined)[]): Decimal | null {
-    return minmax(...values)[0];
-  }
-
-  export function max(...values: (DecimalLike | null | undefined)[]): Decimal | null {
-    return minmax(...values)[1];
-  }
-
-  export function equals(a: DecimalLike | null | undefined, b: DecimalLike | null | undefined) {
-    return a === b || (a != null && b != null && Decimal(a).eq(Decimal(b)));
-  }
+export function isDecimal(v: unknown): v is Decimal {
+  return v instanceof DecimalImpl;
 }
 
-export const isDecimal = Decimal.isDecimal;
-export const isDecimalLike = Decimal.isDecimalLike;
-export const pow10 = Decimal.pow10;
-export const minmax = Decimal.minmax;
-export const min = Decimal.min;
-export const max = Decimal.max;
+export function isDecimalType(v: unknown): v is Decimal | DecimalType {
+  if (isDecimal(v)) return true;
+  if (typeof v === 'object' && v && 'coeff' in v && 'digits' in v && typeof v.coeff === 'bigint') {
+    return true;
+  }
+  return false;
+}
+
+export function isDecimalLike(v: unknown): v is DecimalLike {
+  if (isDecimalType(v)) return true;
+  if (typeof v === 'string') return true;
+  if (typeof v === 'number') return true;
+  if (typeof v === 'bigint') return true;
+  return false;
+}
+
+export function pow10(n: bigint | number): Decimal {
+  const digits = -ensureInteger(n, 'Exponent must be an integer') || 0; // disallow -0
+  return new DecimalImpl(1n, digits);
+}
+
+export function minmax(...values: (DecimalLike | null | undefined)[]): [Decimal | null, Decimal | null] {
+  let minValue: Decimal | null = null;
+  let maxValue: Decimal | null = null;
+  for (let i = 0; i < values.length; i++) {
+    const candidate = Decimal(values[i]);
+    if (candidate == null) continue;
+    if (minValue === null || candidate.lt(minValue)) minValue = candidate;
+    if (maxValue === null || candidate.gt(maxValue)) maxValue = candidate;
+  }
+  return [minValue, maxValue];
+}
+
+export function min(...values: (DecimalLike | null | undefined)[]): Decimal | null {
+  return minmax(...values)[0];
+}
+
+export function max(...values: (DecimalLike | null | undefined)[]): Decimal | null {
+  return minmax(...values)[1];
+}
+
+export function equals(a: DecimalLike | null | undefined, b: DecimalLike | null | undefined) {
+  return a === b || (a != null && b != null && Decimal(a).eq(Decimal(b)));
+}
+
+type typeOfIsDecimal = typeof isDecimal;
+type typeOfIsDecimalType = typeof isDecimalType;
+type typeOfIsDecimalLike = typeof isDecimalLike;
+type typeOfPow10 = typeof pow10;
+type typeOfMinmax = typeof minmax;
+type typeOfMin = typeof min;
+type typeOfMax = typeof max;
+type typeOfEquals = typeof equals;
+
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace Decimal {
+  export const isDecimal: typeOfIsDecimal;
+  export const isDecimalType: typeOfIsDecimalType;
+  export const isDecimalLike: typeOfIsDecimalLike;
+  export const pow10: typeOfPow10;
+  export const minmax: typeOfMinmax;
+  export const min: typeOfMin;
+  export const max: typeOfMax;
+  export const equals: typeOfEquals;
+}
+
+Object.assign(Decimal, {
+  isDecimal,
+  isDecimalType,
+  isDecimalLike,
+  pow10,
+  minmax,
+  min,
+  max,
+  equals,
+});
 
 export default Decimal;
