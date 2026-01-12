@@ -203,13 +203,19 @@ function parseDecimalString(value: string): { coeff: bigint; digits: bigint } {
 }
 
 function alignForOperation(a: Decimal, b: Decimal) {
-  const digits = a.digits > b.digits ? a.digits : b.digits;
-  const aDiff = digits - a.digits;
-  const bDiff = digits - b.digits;
+  if (a.digits >= b.digits) {
+    const diff = a.digits - b.digits;
+    return {
+      digits: a.digits,
+      aCoeff: a.coeff,
+      bCoeff: diff === 0n ? b.coeff : b.coeff * pow10n(diff),
+    };
+  }
+  const diff = b.digits - a.digits;
   return {
-    digits,
-    aCoeff: a.coeff * pow10n(aDiff),
-    bCoeff: b.coeff * pow10n(bDiff),
+    digits: b.digits,
+    aCoeff: a.coeff * pow10n(diff),
+    bCoeff: b.coeff,
   };
 }
 
@@ -924,11 +930,15 @@ class DecimalImpl implements Decimal {
       return `${sign}${coeffDigits}${'0'.repeat(Number(-this.digits))}`;
     }
     const decimals = Number(this.digits);
-    const padded = coeffDigits.padStart(decimals + 1, '0');
-    const split = padded.length - decimals;
-    const integerPart = padded.slice(0, split);
-    const fractionPart = padded.slice(split).padEnd(decimals, '0');
-    return `${sign}${integerPart}.${fractionPart}`;
+    const len = coeffDigits.length;
+    if (len > decimals) {
+      const split = len - decimals;
+      return `${sign}${coeffDigits.slice(0, split)}.${coeffDigits.slice(split)}`;
+    }
+    if (len === decimals) {
+      return `${sign}0.${coeffDigits}`;
+    }
+    return `${sign}0.${'0'.repeat(decimals - len)}${coeffDigits}`;
   }
 
   [Symbol.for('nodejs.util.inspect.custom')](_depth: number, options: object) {
