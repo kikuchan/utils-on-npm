@@ -50,7 +50,7 @@ new Calendar(new Date(), 'local')
 ```ts
 Calendar.fromEpoch(epochSeconds, zone?)      // from Unix epoch seconds
 Calendar.fromDate(date, zone?)               // from native Date
-Calendar.fromCalendar(components, zone?)     // from object { year, month, day, ... }
+Calendar.fromComponents(components, zone?)     // from object { year, month, day, ... }
 ```
 
 ## Time Zones
@@ -78,7 +78,7 @@ date.local$()
 All getters return the value; setters return a new instance (immutable):
 
 ```ts
-const date = Calendar.fromCalendar({ year: 2024n, month: 6n, day: 15n }, 'utc');
+const date = Calendar.fromComponents({ year: 2024n, month: 6n, day: 15n }, 'utc');
 
 date.year()       // 2024n (bigint)
 date.month()      // 6n
@@ -113,11 +113,11 @@ date.epoch('0')           // new instance at epoch 0
 date.epoch$('123.456')    // mutate in place
 ```
 
-### Object Representation
+### Components
 
 ```ts
 const date = new Calendar(2024, 6, 15, 12, 30, '45.5', 'utc');
-date.object();
+date.components();
 // {
 //   year: 2024n,
 //   month: 6n,
@@ -142,7 +142,7 @@ Align dates to boundaries or step to the next boundary. Time components are rese
 ### Day Alignment
 
 ```ts
-const date = Calendar.fromCalendar(
+const date = Calendar.fromComponents(
   { year: 2024n, month: 6n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 },
   'utc'
 );
@@ -198,18 +198,28 @@ date.format('YYYY-MM-DD hh:mm:ss.SSS')     // "1970-01-01 00:00:12.345"
 date.format('YYYY-MM-DD hh:mm:ss.SSSSSS')  // "1970-01-01 00:00:12.345600"
 ```
 
+## Parsing
+
+```ts
+const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc');
+date.year(); // 2024n
+```
+
+Parsing defaults missing lower-order components to the start of the period (day = 1, time = 00:00:00), and validates
+calendar ranges (e.g. invalid dates throw).
+
 ### Format Tokens
 
 | Token    | Description                        | Example               |
 |----------|------------------------------------|-----------------------|
-| `YYYY`   | 4-digit year                       | `0123`                |
-| `yyyy`   | 4-digit year (alias)               | `0123`                |
+| `YYYY`   | 4+ digit year                      | `0123`                |
+| `yyyy`   | 4+ digit year (alias)              | `0123`                |
 | `y`      | Year without padding               | `123`                 |
-| `MM`     | 2-digit month                      | `06`                  |
-| `DD`     | 2-digit day                        | `15`                  |
-| `hh`     | 2-digit hour (24h)                 | `14`                  |
-| `mm`     | 2-digit minutes                    | `30`                  |
-| `ss`     | 2-digit seconds                    | `45`                  |
+| `MM`     | 2-digit month (1-2 digits parsed)  | `06`                  |
+| `DD`     | 2-digit day (1-2 digits parsed)    | `15`                  |
+| `hh`     | 2-digit hour (1-2 digits parsed)   | `14`                  |
+| `mm`     | 2-digit minutes (1-2 digits parsed)| `30`                  |
+| `ss`     | 2-digit seconds (1-2 digits parsed)| `45`                  |
 | `S`      | Fractional seconds (1 digit)       | `1`                   |
 | `SS`     | Fractional seconds (2 digits)      | `12`                  |
 | `SSS`    | Fractional seconds (3 digits)      | `123`                 |

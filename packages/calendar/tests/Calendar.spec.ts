@@ -14,7 +14,7 @@ describe('Calendar UTC conversion', () => {
   });
 
   it('converts calendar to epoch for a known UTC date', () => {
-    const date = Calendar.fromCalendar({ year: 2000n, month: 1n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2000n, month: 1n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     expect(date.epoch().toString()).toBe('946684800');
   });
 
@@ -131,12 +131,12 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('throws for non-integer calendar inputs', () => {
-    expect(() => Calendar.fromCalendar({ year: '1.5', month: 1, day: 1 })).toThrow('year must be an integer');
-    expect(() => Calendar.fromCalendar({ year: 1.5, month: 1, day: 1 })).toThrow('year must be an integer');
+    expect(() => Calendar.fromComponents({ year: '1.5', month: 1, day: 1 })).toThrow('year must be an integer');
+    expect(() => Calendar.fromComponents({ year: 1.5, month: 1, day: 1 })).toThrow('year must be an integer');
   });
 
   it('accepts integer decimal-like calendar inputs', () => {
-    const date = Calendar.fromCalendar({ year: '2000', month: '2', day: '3' }, 'utc');
+    const date = Calendar.fromComponents({ year: '2000', month: '2', day: '3' }, 'utc');
     expect(date.year()).toBe(2000n);
     expect(date.month()).toBe(2n);
     expect(date.day()).toBe(3n);
@@ -157,12 +157,12 @@ describe('Calendar local conversion', () => {
 
     const expectedSeconds = Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).div(1000));
     expect(date.seconds().toString()).toBe(expectedSeconds.toString());
-    expect(date.object().weekday).toBe(native.getDay());
+    expect(date.components().weekday).toBe(native.getDay());
   });
 
   it('converts local calendar back to epoch aligned with Date', () => {
     const native = new Date(Date.UTC(2022, 5, 15, 6, 7, 8, 900));
-    const date = Calendar.fromCalendar(
+    const date = Calendar.fromComponents(
       {
         year: BigInt(native.getFullYear()),
         month: BigInt(native.getMonth() + 1),
@@ -222,7 +222,7 @@ describe('Calendar time zone conversion', () => {
         .map((part) => [part.type, part.value]),
     ).get('weekday');
     const weekdayIndex = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday ?? '');
-    expect(date.object().weekday).toBe(weekdayIndex);
+    expect(date.components().weekday).toBe(weekdayIndex);
   });
 
   it('covers time zone parts mapping for another IANA zone', () => {
@@ -271,7 +271,7 @@ describe('Calendar time zone conversion', () => {
     const native = new Date(Date.UTC(2021, 10, 7, 5, 6, 7, 0));
     const expectedEpoch = Decimal(native.getTime()).div(1000);
     const parts = getTimeZoneParts(native, timeZone);
-    const date = Calendar.fromCalendar(parts, timeZone);
+    const date = Calendar.fromComponents(parts, timeZone);
 
     expect(date.epoch().toString()).toBe(expectedEpoch.toString());
   });
@@ -296,7 +296,7 @@ describe('Calendar time zone conversion', () => {
     } as unknown as typeof Intl.DateTimeFormat;
 
     try {
-      const date = Calendar.fromCalendar(
+      const date = Calendar.fromComponents(
         { year: 2000n, month: 1n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 },
         'Etc/Chaos-NonConverge',
       );
@@ -308,9 +308,29 @@ describe('Calendar time zone conversion', () => {
   });
 });
 
+describe('Calendar parsing', () => {
+  it('parses compact year+month formats and defaults day to 1', () => {
+    const date = Calendar.parse('202612', 'yyyyMM', 'utc');
+    expect(date.year()).toBe(2026n);
+    expect(date.month()).toBe(12n);
+    expect(date.day()).toBe(1n);
+  });
+
+  it('chooses a valid month when compact formats are ambiguous', () => {
+    const date = Calendar.parse('20260117', 'yyyyMM', 'utc');
+    expect(date.year()).toBe(2026011n);
+    expect(date.month()).toBe(7n);
+    expect(date.day()).toBe(1n);
+  });
+
+  it('throws for impossible calendar dates', () => {
+    expect(() => Calendar.parse('20260230', 'yyyyMMDD', 'utc')).toThrow('day is out of range');
+  });
+});
+
 describe('Calendar alignment and stepping', () => {
   it('aligns to the same day when no step is provided', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 }, 'utc');
     const aligned = date.alignToDay();
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -318,7 +338,7 @@ describe('Calendar alignment and stepping', () => {
     expect(aligned.hour()).toBe(0n);
   });
   it('aligns to day boundaries with a step', () => {
-    const date = Calendar.fromCalendar(
+    const date = Calendar.fromComponents(
       { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: '22.5' },
       'utc',
     );
@@ -332,7 +352,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next day boundary with a step', () => {
-    const date = Calendar.fromCalendar(
+    const date = Calendar.fromComponents(
       { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: '22.5' },
       'utc',
     );
@@ -346,7 +366,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next stepped day from a list', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const next = date.nextDay([1n, 15n, 20n]);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -354,13 +374,13 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('handles duplicate entries when selecting the next stepped day', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 9n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 9n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const next = date.nextDay([10n, 10n, 20n]);
     expect(next.day()).toBe(10n);
   });
 
   it('aligns to the nearest stepped day from a list', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 17n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 17n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const aligned = date.alignToDay([1n, 10n, 20n]);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -369,13 +389,13 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('handles duplicate entries in stepped days', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 12n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 12n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const aligned = date.alignToDay([5n, 5n, 10n]);
     expect(aligned.day()).toBe(10n);
   });
 
   it('keeps the current day when no stepped day is before it', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const aligned = date.alignToDay([20n, 30n]);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -383,7 +403,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the current day when nextDay is called without a step', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const next = date.nextDay();
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -402,7 +422,7 @@ describe('Calendar alignment and stepping', () => {
     };
 
     try {
-      const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+      const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
       date.alignToDay([1n, 2n]);
       date.nextDay([1n, 2n]);
     } finally {
@@ -411,7 +431,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next month when no later stepped day exists', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 30n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 30n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
     const next = date.nextDay([1n, 15n]);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(6n);
@@ -420,7 +440,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns and steps months', () => {
-    const date = Calendar.fromCalendar({ year: 2020n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
     const aligned = date.alignToMonth(3n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(4n);
@@ -433,7 +453,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns and steps years', () => {
-    const date = Calendar.fromCalendar({ year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
     const aligned = date.alignToYear(10n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(1n);
@@ -446,11 +466,11 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns years with era boundaries', () => {
-    const ad202 = Calendar.fromCalendar({ year: 202n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad102 = Calendar.fromCalendar({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad10 = Calendar.fromCalendar({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc50 = Calendar.fromCalendar({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc150 = Calendar.fromCalendar({ year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const ad202 = Calendar.fromComponents({ year: 202n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const ad102 = Calendar.fromComponents({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const ad10 = Calendar.fromComponents({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc150 = Calendar.fromComponents({ year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
 
     expect(ad202.alignToYear(100n, { era: true }).year()).toBe(200n);
     expect(ad102.alignToYear(100n, { era: true }).year()).toBe(100n);
@@ -460,11 +480,11 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('steps years with era boundaries', () => {
-    const ad202 = Calendar.fromCalendar({ year: 202n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad102 = Calendar.fromCalendar({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad10 = Calendar.fromCalendar({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc50 = Calendar.fromCalendar({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc150 = Calendar.fromCalendar({ year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const ad202 = Calendar.fromComponents({ year: 202n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const ad102 = Calendar.fromComponents({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const ad10 = Calendar.fromComponents({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc150 = Calendar.fromComponents({ year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
 
     expect(ad202.nextYear(100n, { era: true }).year()).toBe(300n);
     expect(ad102.nextYear(100n, { era: true }).year()).toBe(200n);
@@ -474,7 +494,7 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the current year when no step is provided', () => {
-    const date = Calendar.fromCalendar({ year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
+    const date = Calendar.fromComponents({ year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
     const aligned = date.alignToYear();
     const next = date.nextYear();
     expect(aligned.year()).toBe(2025n);
@@ -482,18 +502,18 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the BC year when no next step exists', () => {
-    const bc50 = Calendar.fromCalendar({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     const aligned = bc50.alignToYear([], { era: true });
     expect(aligned.year()).toBe(-49n);
   });
 
   it('falls back to year 1 when no previous stepped BC entry exists', () => {
-    const bc50 = Calendar.fromCalendar({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     expect(bc50.nextYear([100n], { era: true }).year()).toBe(1n);
   });
 
   it('aligns to seconds within a day', () => {
-    const date = Calendar.fromCalendar(
+    const date = Calendar.fromComponents(
       { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: '22.123' },
       'utc',
     );
@@ -519,12 +539,122 @@ describe('Calendar formatting', () => {
   });
 
   it('formats era markers for BC and AD years', () => {
-    const ad = Calendar.fromCalendar({ year: 1n, month: 1n, day: 1n }, 'utc');
-    const bc = Calendar.fromCalendar({ year: 0n, month: 1n, day: 1n }, 'utc');
+    const ad = Calendar.fromComponents({ year: 1n, month: 1n, day: 1n }, 'utc');
+    const bc = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n }, 'utc');
     expect(ad.format('G')).toBe('1 AD');
     expect(ad.format('GGGG')).toBe('0001 AD');
     expect(bc.format('G')).toBe('BC 1');
     expect(bc.format('GGGG')).toBe('BC 0001');
+  });
+
+  it('formats single-digit month and hour tokens without padding', () => {
+    const date = Calendar.fromComponents({ year: 2024n, month: 6n, day: 5n, hour: 3n, minutes: 4n, seconds: 0 }, 'utc');
+    expect(date.format('YYYY-M-DD h:mm')).toBe('2024-6-05 3:04');
+  });
+
+  it('formats negative years with padded year tokens', () => {
+    const bc1 = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n }, 'utc');
+    const bc2 = Calendar.fromComponents({ year: -1n, month: 1n, day: 1n }, 'utc');
+    expect(bc1.format('YYYY-MM-DD')).toBe('0000-01-01');
+    expect(bc1.format('y-MM-DD')).toBe('0-01-01');
+    expect(bc2.format('YYYY-MM-DD')).toBe('-0001-01-01');
+    expect(bc2.format('y-MM-DD')).toBe('-1-01-01');
+  });
+});
+
+describe('Calendar parsing', () => {
+  it('parses a full datetime with fractional seconds', () => {
+    const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc');
+    expect(date.year()).toBe(2024n);
+    expect(date.month()).toBe(6n);
+    expect(date.day()).toBe(15n);
+    expect(date.hour()).toBe(12n);
+    expect(date.minutes()).toBe(30n);
+    expect(date.seconds().toString()).toBe('45.123');
+  });
+
+  it('parses a date-only format and defaults time to zero', () => {
+    const date = Calendar.parse('2024-06-15', 'YYYY-MM-DD', 'utc');
+    expect(date.hour()).toBe(0n);
+    expect(date.minutes()).toBe(0n);
+    expect(date.seconds().toString()).toBe('0');
+  });
+
+  it('parses era-aware formats', () => {
+    const bc = Calendar.parse('BC 0001-01-01', 'GGGG-MM-DD', 'utc');
+    const ad = Calendar.parse('1 AD-01-01', 'G-MM-DD', 'utc');
+    expect(bc.year()).toBe(0n);
+    expect(ad.year()).toBe(1n);
+  });
+
+  it('parses era tokens without explicit era suffixes', () => {
+    const date = Calendar.parse('2024-06-15', 'gggg-MM-DD', 'utc');
+    expect(date.year()).toBe(2024n);
+  });
+
+  it('throws for year zero in explicit era tokens', () => {
+    expect(() => Calendar.parse('0000 AD-01-01', 'GGGG-MM-DD', 'utc')).toThrow('era year must be at least 1');
+    expect(() => Calendar.parse('BC 0000-01-01', 'GGGG-MM-DD', 'utc')).toThrow('era year must be at least 1');
+    expect(() => Calendar.parse('0 AD-01-01', 'G-MM-DD', 'utc')).toThrow('era year must be at least 1');
+    expect(() => Calendar.parse('BC 0-01-01', 'G-MM-DD', 'utc')).toThrow('era year must be at least 1');
+  });
+
+  it('parses era tokens without spaces', () => {
+    const bc = Calendar.parse('BC0001-01-01', 'GGGG-MM-DD', 'utc');
+    const ad = Calendar.parse('0001AD-01-01', 'GGGG-MM-DD', 'utc');
+    expect(bc.year()).toBe(0n);
+    expect(ad.year()).toBe(1n);
+  });
+
+  it('throws when required date fields are missing', () => {
+    expect(() => Calendar.parse('2024', 'YYYY', 'utc')).toThrow('format must include year and month');
+  });
+
+  it('throws when the input does not match the format', () => {
+    expect(() => Calendar.parse('2024/06/15', 'YYYY-MM-DD', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when the same field is duplicated with different values', () => {
+    expect(() => Calendar.parse('2024-2025-06-15', 'YYYY-YYYY-MM-DD', 'utc')).toThrow('year is duplicated');
+  });
+
+  it('throws when fractional seconds are duplicated with different values', () => {
+    expect(() => Calendar.parse('2024-06-15 12:30:45.12.3', 'YYYY-MM-DD hh:mm:ss.SS.S', 'utc')).toThrow(
+      'fraction is duplicated',
+    );
+  });
+
+  it('parses single-digit month and hour tokens with one or two digits', () => {
+    const compact = Calendar.parse('2024-6-05 3:04', 'YYYY-M-DD h:mm', 'utc');
+    expect(compact.month()).toBe(6n);
+    expect(compact.hour()).toBe(3n);
+
+    const padded = Calendar.parse('2024-06-05 03:04', 'YYYY-M-DD h:mm', 'utc');
+    expect(padded.month()).toBe(6n);
+    expect(padded.hour()).toBe(3n);
+  });
+
+  it('parses negative years for padded and variable year tokens', () => {
+    const bc1 = Calendar.parse('0000-01-01', 'YYYY-MM-DD', 'utc');
+    const bc2 = Calendar.parse('-0001-01-01', 'YYYY-MM-DD', 'utc');
+    const bc2Short = Calendar.parse('-1-01-01', 'y-MM-DD', 'utc');
+    expect(bc1.year()).toBe(0n);
+    expect(bc2.year()).toBe(-1n);
+    expect(bc2Short.year()).toBe(-1n);
+  });
+
+  it('round-trips era tokens with year tokens and components', () => {
+    const bc1 = Calendar.parse('BC 0001-01-01', 'GGGG-MM-DD', 'utc');
+    const bc2 = Calendar.parse('BC 0002-01-01', 'GGGG-MM-DD', 'utc');
+    const ad1 = Calendar.parse('0001 AD-01-01', 'GGGG-MM-DD', 'utc');
+
+    expect(bc1.format('YYYY-MM-DD')).toBe('0000-01-01');
+    expect(bc2.format('YYYY-MM-DD')).toBe('-0001-01-01');
+    expect(ad1.format('YYYY-MM-DD')).toBe('0001-01-01');
+
+    expect(bc1.components().year).toBe(0n);
+    expect(bc2.components().year).toBe(-1n);
+    expect(ad1.components().year).toBe(1n);
   });
 });
 
@@ -535,14 +665,14 @@ describe('Calendar weekday', () => {
   });
 
   it('returns weekday index for nearby UTC dates', () => {
-    const sunday = Calendar.fromCalendar({ year: 1970n, month: 1n, day: 4n }, 'utc');
-    const wednesday = Calendar.fromCalendar({ year: 1969n, month: 12n, day: 31n }, 'utc');
+    const sunday = Calendar.fromComponents({ year: 1970n, month: 1n, day: 4n }, 'utc');
+    const wednesday = Calendar.fromComponents({ year: 1969n, month: 12n, day: 31n }, 'utc');
     expect(sunday.weekday()).toBe(0);
     expect(wednesday.weekday()).toBe(3);
   });
 
-  it('includes weekday in object()', () => {
-    const date = Calendar.fromCalendar({ year: 1970n, month: 1n, day: 1n }, 'utc');
-    expect(date.object().weekday).toBe(4);
+  it('includes weekday in components()', () => {
+    const date = Calendar.fromComponents({ year: 1970n, month: 1n, day: 1n }, 'utc');
+    expect(date.components().weekday).toBe(4);
   });
 });
