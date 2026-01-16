@@ -39,6 +39,9 @@ export default defineConfig({
   outDir,
   fixedExtension: false,
   format: ['esm', 'cjs'],
+  outputOptions: {
+    exports: 'named',
+  },
 
   onSuccess() {
     fs.copyFileSync('./README.md', path.join(outDir, 'README.md'));
