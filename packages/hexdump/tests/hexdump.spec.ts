@@ -63,6 +63,33 @@ describe('hexdump HTML colorizer escaping', () => {
     expect(out).toContain('&gt;');
     expect(out).toContain('&amp;');
   });
+
+  it('labels value classes for null, control, ascii, and extended bytes', () => {
+    const out = hexdump(u8([0x00, 0x01, 0x41, 0x80]), {
+      foldSize: 4,
+      printChars: true,
+      addrLength: 2,
+      color: 'html',
+    });
+    expect(out).toContain('hexdump-null');
+    expect(out).toContain('hexdump-control');
+    expect(out).toContain('hexdump-ascii');
+    expect(out).toContain('hexdump-exascii');
+  });
+
+  it('falls back to normal color for formatted padding cells', () => {
+    const out = hexdump(u8([0x41]), {
+      foldSize: 2,
+      printChars: false,
+      addrLength: 2,
+      color: 'simple',
+      formatter: (s, ctx) => {
+        if (ctx.type === 'hex-value-no-data') return 'NA';
+        return s;
+      },
+    });
+    expect(out).toContain('NA');
+  });
 });
 
 describe('hexdump hex value prefix/suffix', () => {

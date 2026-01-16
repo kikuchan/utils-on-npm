@@ -494,3 +494,20 @@ describe('Specific endianness methods', () => {
     expect(br.readFloat64le()).toBeCloseTo(1.5);
   });
 });
+
+describe('Branch coverage edges', () => {
+  it('ignores non-number seek inputs', () => {
+    const br = new BinaryReader(new Uint8Array([1, 2, 3]));
+    // @ts-expect-error intentionally passing unsupported input to cover branch
+    br.seek({} as unknown as number);
+    expect(br.position).toBe(0);
+  });
+
+  it('skips adjustment when peekBytes yields undefined', () => {
+    const br = new BinaryReader(new Uint8Array([1, 2, 3]));
+    (br as unknown as { peekBytes: () => undefined }).peekBytes = () => undefined;
+    const result = br.readBytes(2);
+    expect(result).toBeUndefined();
+    expect(br.position).toBe(0);
+  });
+});
