@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RoundingMode } from '../src/index.ts';
-import { Decimal, isDecimal, max, min, minmax, pow10 } from '../src/index.ts';
+import { Decimal, type DecimalLike, isDecimal, max, min, minmax, pow10 } from '../src/index.ts';
 
 const guardAllowance = (precision: number, base: NonNullable<Decimal>, value: NonNullable<Decimal>) => {
   const target = precision < 0 ? 0 : precision;

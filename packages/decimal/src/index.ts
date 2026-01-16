@@ -4,7 +4,8 @@ export interface DecimalInstance {
   readonly [__brand]: never;
 }
 
-export type DecimalLike = number | string | bigint | DecimalInstance | { coeff: bigint; digits: number };
+export type DecimalType = { coeff: bigint; digits: bigint | number };
+export type DecimalLike = number | string | bigint | DecimalInstance | DecimalType;
 export type RoundingMode = 'trunc' | 'floor' | 'ceil' | 'round';
 
 export interface Decimal {
@@ -65,7 +66,7 @@ export interface Decimal {
   inverse$(digits?: bigint | number): this;
   inverse(digits?: bigint | number): Decimal;
   div$(v: DecimalLike, digits?: bigint | number, mode?: RoundingMode): this;
-  div(v: DecimalLike, digits?: bigint | number): Decimal;
+  div(v: DecimalLike, digits?: bigint | number, mode?: RoundingMode): Decimal;
 
   // Modulo and bounding
   mod$(v: DecimalLike): this;
