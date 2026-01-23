@@ -21,12 +21,12 @@ export default defineConfig({
     alias,
   },
   test: {
-    include: ['packages/*/tests/**/*.{spec,test}.ts'],
+    include: [resolve(workspaceRoot, 'packages/*/tests/**/*.{spec,test}.ts')],
     environment: 'node',
     coverage: {
       provider: 'v8',
       reporter: ['text'],
-      include: ['packages/*/src/**/*.ts'],
+      include: [resolve(workspaceRoot, 'packages/*/src/**/*.ts')],
     },
   },
 });

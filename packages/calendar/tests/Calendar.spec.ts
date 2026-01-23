@@ -330,7 +330,10 @@ describe('Calendar parsing', () => {
 
 describe('Calendar alignment and stepping', () => {
   it('aligns to the same day when no step is provided', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 },
+      'utc',
+    );
     const aligned = date.alignToDay();
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -366,7 +369,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next stepped day from a list', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
     const next = date.nextDay([1n, 15n, 20n]);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -380,7 +386,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns to the nearest stepped day from a list', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 17n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 17n, hour: 9n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
     const aligned = date.alignToDay([1n, 10n, 20n]);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -389,13 +398,19 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('handles duplicate entries in stepped days', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 12n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 12n, hour: 9n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
     const aligned = date.alignToDay([5n, 5n, 10n]);
     expect(aligned.day()).toBe(10n);
   });
 
   it('keeps the current day when no stepped day is before it', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
     const aligned = date.alignToDay([20n, 30n]);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -403,7 +418,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the current day when nextDay is called without a step', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
     const next = date.nextDay();
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -422,7 +440,10 @@ describe('Calendar alignment and stepping', () => {
     };
 
     try {
-      const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+      const date = Calendar.fromComponents(
+        { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
+        'utc',
+      );
       date.alignToDay([1n, 2n]);
       date.nextDay([1n, 2n]);
     } finally {
@@ -431,7 +452,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next month when no later stepped day exists', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 30n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 30n, hour: 9n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
     const next = date.nextDay([1n, 15n]);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(6n);
@@ -440,7 +464,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns and steps months', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2020n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 },
+      'utc',
+    );
     const aligned = date.alignToMonth(3n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(4n);
@@ -453,7 +480,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns and steps years', () => {
-    const date = Calendar.fromComponents({ year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 },
+      'utc',
+    );
     const aligned = date.alignToYear(10n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(1n);
@@ -470,7 +500,10 @@ describe('Calendar alignment and stepping', () => {
     const ad102 = Calendar.fromComponents({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     const ad10 = Calendar.fromComponents({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc150 = Calendar.fromComponents({ year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc150 = Calendar.fromComponents(
+      { year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
 
     expect(ad202.alignToYear(100n, { era: true }).year()).toBe(200n);
     expect(ad102.alignToYear(100n, { era: true }).year()).toBe(100n);
@@ -484,7 +517,10 @@ describe('Calendar alignment and stepping', () => {
     const ad102 = Calendar.fromComponents({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     const ad10 = Calendar.fromComponents({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
     const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc150 = Calendar.fromComponents({ year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc150 = Calendar.fromComponents(
+      { year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 },
+      'utc',
+    );
 
     expect(ad202.nextYear(100n, { era: true }).year()).toBe(300n);
     expect(ad102.nextYear(100n, { era: true }).year()).toBe(200n);
@@ -494,7 +530,10 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the current year when no step is provided', () => {
-    const date = Calendar.fromComponents({ year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 }, 'utc');
+    const date = Calendar.fromComponents(
+      { year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 },
+      'utc',
+    );
     const aligned = date.alignToYear();
     const next = date.nextYear();
     expect(aligned.year()).toBe(2025n);
@@ -559,6 +598,22 @@ describe('Calendar formatting', () => {
     expect(bc1.format('y-MM-DD')).toBe('0-01-01');
     expect(bc2.format('YYYY-MM-DD')).toBe('-0001-01-01');
     expect(bc2.format('y-MM-DD')).toBe('-1-01-01');
+  });
+
+  it('formats lowercase era tokens without AD suffix', () => {
+    const ad = Calendar.fromComponents({ year: 12n, month: 1n, day: 1n }, 'utc');
+    const bc = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n }, 'utc');
+    expect(ad.format('g')).toBe('12');
+    expect(ad.format('gggg')).toBe('0012');
+    expect(bc.format('g')).toBe('BC 1');
+    expect(bc.format('gggg')).toBe('BC 0001');
+  });
+
+  it('formats lowercase padded year tokens', () => {
+    const ad = Calendar.fromComponents({ year: 42n, month: 1n, day: 1n }, 'utc');
+    const bc = Calendar.fromComponents({ year: -1n, month: 1n, day: 1n }, 'utc');
+    expect(ad.format('yyyy-MM-DD')).toBe('0042-01-01');
+    expect(bc.format('yyyy-MM-DD')).toBe('-0001-01-01');
   });
 });
 
@@ -655,6 +710,108 @@ describe('Calendar parsing', () => {
     expect(bc1.components().year).toBe(0n);
     expect(bc2.components().year).toBe(-1n);
     expect(ad1.components().year).toBe(1n);
+  });
+
+  it('accepts duplicate tokens when the values are identical', () => {
+    const date = Calendar.parse('2024-02-02', 'YYYY-MM-MM', 'utc');
+    expect(date.year()).toBe(2024n);
+    expect(date.month()).toBe(2n);
+  });
+
+  it('throws when duplicate month tokens differ', () => {
+    expect(() => Calendar.parse('01-02', 'MM-MM', 'utc')).toThrow('month is duplicated');
+  });
+
+  it('throws when duplicate day tokens differ', () => {
+    expect(() => Calendar.parse('01-02', 'DD-DD', 'utc')).toThrow('day is duplicated');
+  });
+
+  it('throws when duplicate hour tokens differ', () => {
+    expect(() => Calendar.parse('01-02', 'hh-hh', 'utc')).toThrow('hour is duplicated');
+  });
+
+  it('throws when duplicate minutes tokens differ', () => {
+    expect(() => Calendar.parse('01-02', 'mm-mm', 'utc')).toThrow('minutes is duplicated');
+  });
+
+  it('throws when duplicate seconds tokens differ', () => {
+    expect(() => Calendar.parse('01-02', 'ss-ss', 'utc')).toThrow('seconds is duplicated');
+  });
+
+  it('throws when era tokens do not match the input', () => {
+    expect(() => Calendar.parse('AD 2024-01-01', 'GGGG-MM-DD', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when year tokens cannot reach the minimum length', () => {
+    expect(() => Calendar.parse('20-01', 'YYYY-MM', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when remaining minimum length exceeds the input', () => {
+    expect(() => Calendar.parse('1-2', 'y-YYYY', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when month is out of range', () => {
+    expect(() => Calendar.parse('2024-13-01', 'YYYY-MM-DD', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when hour is out of range', () => {
+    expect(() => Calendar.parse('2024-01-01 24:00:00', 'YYYY-MM-DD hh:mm:ss', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when minutes are out of range', () => {
+    expect(() => Calendar.parse('2024-01-01 23:60:00', 'YYYY-MM-DD hh:mm:ss', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when seconds are out of range', () => {
+    expect(() => Calendar.parse('2024-01-01 23:59:60', 'YYYY-MM-DD hh:mm:ss', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when the fraction contains non-digits', () => {
+    expect(() => Calendar.parse('2024-06-15 12:30:45.A', 'YYYY-MM-DD hh:mm:ss.S', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when era tokens conflict', () => {
+    expect(() => Calendar.parse('BC 1-2 AD', 'G-G', 'utc')).toThrow('year is duplicated');
+  });
+
+  it('throws when month tokens contain non-digits', () => {
+    expect(() => Calendar.parse('2024-0X-01', 'YYYY-MM-DD', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when day tokens contain non-digits', () => {
+    expect(() => Calendar.parse('2024-01-0X', 'YYYY-MM-DD', 'utc')).toThrow('format does not match value');
+  });
+
+  it('throws when hour tokens contain non-digits', () => {
+    expect(() => Calendar.parse('2024-01-01 X0:00:00', 'YYYY-MM-DD hh:mm:ss', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when minute tokens contain non-digits', () => {
+    expect(() => Calendar.parse('2024-01-01 00:X0:00', 'YYYY-MM-DD hh:mm:ss', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when second tokens contain non-digits', () => {
+    expect(() => Calendar.parse('2024-01-01 00:00:X0', 'YYYY-MM-DD hh:mm:ss', 'utc')).toThrow(
+      'format does not match value',
+    );
+  });
+
+  it('throws when fraction tokens contain non-digits', () => {
+    expect(() => Calendar.parse('2024-01-01 00:00:00.ABC', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc')).toThrow(
+      'format does not match value',
+    );
   });
 });
 

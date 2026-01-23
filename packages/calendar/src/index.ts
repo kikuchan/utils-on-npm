@@ -26,12 +26,11 @@ type YearStepOptions = {
   era?: boolean;
 };
 
-type FormatToken = {
+type FormatTokenBase = {
   token: string;
   kind: 'year' | 'month' | 'day' | 'hour' | 'minutes' | 'seconds' | 'fraction' | 'era';
   regex: string;
   minLength: number;
-  maxLength?: number;
   format: (input: {
     year: string;
     month: string;
@@ -45,6 +44,18 @@ type FormatToken = {
     ad: string;
   }) => string;
 };
+
+type FormatTokenWithMaxLength = FormatTokenBase & {
+  kind: 'month' | 'day' | 'hour' | 'minutes' | 'seconds' | 'fraction';
+  maxLength: number;
+};
+
+type FormatTokenWithoutMaxLength = FormatTokenBase & {
+  kind: 'year' | 'era';
+  maxLength?: undefined;
+};
+
+type FormatToken = FormatTokenWithMaxLength | FormatTokenWithoutMaxLength;
 
 const SECONDS_PER_DAY = 86_400n;
 const SECONDS_PER_HOUR = 3_600n;
@@ -490,7 +501,6 @@ function computeMinRemaining(parts: FormatPart[]): number[] {
 }
 
 function digitsSlice(value: string, start: number, length: number): string | undefined {
-  if (length <= 0 || start + length > value.length) return undefined;
   const slice = value.slice(start, start + length);
   for (let i = 0; i < slice.length; i += 1) {
     const code = slice.charCodeAt(i);
@@ -587,7 +597,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         return undefined;
       }
       case 'month': {
-        const maxLen = Math.min(token.maxLength ?? remainingMax, remainingMax);
+        const maxLen = Math.min(token.maxLength, remainingMax);
         for (let len = maxLen; len >= 1; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
           if (!digits) continue;
@@ -601,7 +611,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         return undefined;
       }
       case 'day': {
-        const maxLen = Math.min(token.maxLength ?? remainingMax, remainingMax);
+        const maxLen = Math.min(token.maxLength, remainingMax);
         for (let len = maxLen; len >= 1; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
           if (!digits) continue;
@@ -615,7 +625,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         return undefined;
       }
       case 'hour': {
-        const maxLen = Math.min(token.maxLength ?? remainingMax, remainingMax);
+        const maxLen = Math.min(token.maxLength, remainingMax);
         for (let len = maxLen; len >= 1; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
           if (!digits) continue;
@@ -629,7 +639,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         return undefined;
       }
       case 'minutes': {
-        const maxLen = Math.min(token.maxLength ?? remainingMax, remainingMax);
+        const maxLen = Math.min(token.maxLength, remainingMax);
         for (let len = maxLen; len >= 1; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
           if (!digits) continue;
@@ -643,7 +653,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         return undefined;
       }
       case 'seconds': {
-        const maxLen = Math.min(token.maxLength ?? remainingMax, remainingMax);
+        const maxLen = Math.min(token.maxLength, remainingMax);
         for (let len = maxLen; len >= 1; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
           if (!digits) continue;
@@ -657,7 +667,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         return undefined;
       }
       case 'fraction': {
-        const maxLen = Math.min(token.maxLength ?? remainingMax, remainingMax);
+        const maxLen = Math.min(token.maxLength, remainingMax);
         const minLen = token.minLength;
         for (let len = maxLen; len >= minLen; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
@@ -689,12 +699,8 @@ function parseByFormat(value: string, format: string): CalendarInput {
   const minutes = parsed.minutes ?? 0n;
   const secondsBase = parsed.secondsWhole ?? 0n;
 
-  if (month < 1n || month > 12n) throw new Error('month is out of range');
   const maxDay = daysInMonth(year, month);
   if (day < 1n || day > maxDay) throw new Error('day is out of range');
-  if (hour < 0n || hour > 23n) throw new Error('hour is out of range');
-  if (minutes < 0n || minutes > 59n) throw new Error('minutes is out of range');
-  if (secondsBase < 0n || secondsBase > 59n) throw new Error('seconds is out of range');
 
   let seconds = Decimal(secondsBase);
   if (parsed.fraction) {
