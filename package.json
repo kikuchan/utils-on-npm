@@ -4,8 +4,8 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "pnpm -r run build",
-    "clean": "pnpm -r run clean",
+    "build": "pnpm run clean; pnpm -r run build",
+    "clean": "rm -rf ./dist",
     "format": "prettier --check .",
     "lint": "eslint .",
     "test": "vitest --run && pnpm -r run type:check",
