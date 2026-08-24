@@ -975,7 +975,35 @@ class DecimalImpl implements Decimal {
   }
 
   number(): number {
-    return Number(this.toString());
+    let coeff = Number(this.coeff);
+    let digits = this.digits;
+    if (!Number.isFinite(coeff) && digits > 0) {
+      let bigintCoeff = this.coeff;
+      // Retain Number's decimal range plus guard digits before discarding insignificant BigInt digits.
+      const initialShift = Math.max(0, digits - 340);
+      if (initialShift > 0) {
+        bigintCoeff /= pow10n(initialShift);
+        digits -= initialShift;
+      }
+      while (!Number.isFinite((coeff = Number(bigintCoeff))) && digits > 0) {
+        const shift = Math.min(digits, 32);
+        bigintCoeff /= pow10n(shift);
+        digits -= shift;
+      }
+      if (coeff === 0) return this.coeff < 0n ? -0 : 0;
+    }
+    let exponent = -digits;
+    while (exponent < -308) {
+      coeff *= 1e-308;
+      if (coeff === 0) return coeff;
+      exponent += 308;
+    }
+    while (exponent > 308) {
+      coeff *= 1e308;
+      if (!Number.isFinite(coeff)) return coeff;
+      exponent -= 308;
+    }
+    return exponent < 0 ? coeff / 10 ** -exponent : coeff * 10 ** exponent;
   }
 
   integer(): bigint {

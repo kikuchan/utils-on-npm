@@ -378,6 +378,41 @@ describe('Decimal equals helper', () => {
 });
 
 describe('Decimal number parity', () => {
+  it('converts safe coefficients across the exact power-of-ten range', () => {
+    const samples = [
+      { coeff: 9007199254740991n, digits: 0 },
+      { coeff: 314159n, digits: 5 },
+      { coeff: -314159n, digits: 5 },
+      { coeff: 9007199254740991n, digits: 22 },
+      { coeff: 9007199254740991n, digits: -22 },
+    ];
+
+    for (const sample of samples) {
+      const decimal = Decimal(sample);
+      expect(decimal.number()).toBe(Number(decimal.toString()));
+    }
+  });
+
+  it('converts unsafe coefficients without string conversion', () => {
+    const decimal = Decimal({ coeff: 9007199254740993n, digits: 1 });
+    decimal.toString = () => {
+      throw new Error('Unexpected string conversion');
+    };
+
+    expect(decimal.number()).toBe(Number(9007199254740993n) / 10);
+  });
+
+  it('scales coefficients that overflow Number before conversion', () => {
+    expect(Decimal({ coeff: 10n ** 400n, digits: 400 }).number()).toBe(1);
+    expect(Decimal({ coeff: -(10n ** 400n), digits: 400 }).number()).toBe(-1);
+  });
+
+  it('handles subnormal and overflowing results without intermediate underflow', () => {
+    expect(Decimal({ coeff: 5n, digits: 324 }).number()).toBe(5e-324);
+    expect(Decimal({ coeff: -5n, digits: 324 }).number()).toBe(-5e-324);
+    expect(Decimal({ coeff: 1n, digits: -309 }).number()).toBe(Infinity);
+  });
+
   it('matches Number(str) for challenging inputs', () => {
     const samples = [
       '0',
