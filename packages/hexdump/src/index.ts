@@ -36,7 +36,11 @@ type Context =
 type ColorizerOperation = { enter: string; leave: string; escape?: (s: string) => string } | null;
 
 type Colorizer =
-  boolean | undefined | 'simple' | 'html' | ((s: string, ctx: Context) => ColorizerOperation | undefined);
+  | boolean
+  | undefined
+  | 'simple'
+  | 'html'
+  | ((s: string, ctx: Context) => ColorizerOperation | undefined);
 type Formatter = undefined | ((s: string, ctx: Context) => string | undefined);
 
 type Options = {

@@ -1,8 +1,8 @@
 import { BinaryReader } from '@kikuchan/binary-reader';
 import { describe, expect, it } from 'vitest';
+import * as M from '../src/index';
 import type { Equal } from './_types';
 import { expectType } from './_types';
-import * as M from '../src/index';
 
 describe('binary-struct', () => {
   describe('Boolean', () => {

@@ -1,9 +1,0 @@
-dist
-files
-node_modules
-playground
-.vite
-.local
-*.md
-*.json
-*.yaml
