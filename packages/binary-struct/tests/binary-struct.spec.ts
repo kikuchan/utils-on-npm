@@ -1,7 +1,7 @@
 import { BinaryReader } from '@kikuchan/binary-reader';
 import { describe, expect, it } from 'vitest';
-import type { Equal } from '../../../tests/_types';
-import { expectType } from '../../../tests/_types';
+import type { Equal } from './_types';
+import { expectType } from './_types';
 import * as M from '../src/index';
 
 describe('binary-struct', () => {
@@ -343,7 +343,7 @@ describe('binary-struct', () => {
       const badLengthType = M.defineType(() => ({
         init: () => 0,
         read: () => 'x' as unknown as number,
-        write: () => { },
+        write: () => {},
       }));
       const A = M.array(badLengthType(), M.uint8());
       expect(() => A.parse(new Uint8Array([0xff]))).toThrow(/invalid size specifier/);
@@ -613,7 +613,7 @@ describe('binary-struct', () => {
       const badLen = M.defineType<number>(() => ({
         init: () => 0,
         read: () => undefined as unknown as number,
-        write: () => { },
+        write: () => {},
       }));
       const Bad = M.string(badLen());
       expect(() => Bad.parse(new Uint8Array([0]))).toThrow(/invalid size specifier/);

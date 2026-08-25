@@ -536,12 +536,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
   const minRemaining = computeMinRemaining(parts);
   let conflictError: string | undefined;
 
-  const applyValue = <K extends keyof ParseState>(
-    state: ParseState,
-    key: K,
-    next: ParseState[K],
-    label: string,
-  ) => {
+  const applyValue = <K extends keyof ParseState>(state: ParseState, key: K, next: ParseState[K], label: string) => {
     const current = state[key];
     if (current !== undefined && current !== next) {
       if (!conflictError) conflictError = `${label} is duplicated`;

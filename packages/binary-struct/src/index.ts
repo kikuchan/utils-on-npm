@@ -53,33 +53,41 @@ type ReqValue<W> = Exclude<W, undefined>;
 
 // Compute write type: required for all fields except those whose write type is `undefined`.
 type RecordWrite<R extends Record<string, Type<any, any, any>>> = {
-  [K in keyof R as IsUnknown<ExtractWriteValue<R[K]>> extends true
-    ? never
-    : ExtractWriteValue<R[K]> extends undefined
+  [
+    K in keyof R as IsUnknown<ExtractWriteValue<R[K]>> extends true
       ? never
-      : K & string]: RelaxArrayWrite<ReqValue<ExtractWriteValue<R[K]>>>;
+      : ExtractWriteValue<R[K]> extends undefined
+        ? never
+        : K & string
+  ]: RelaxArrayWrite<ReqValue<ExtractWriteValue<R[K]>>>;
 } & {
-  [K in keyof R as IsUnknown<ExtractWriteValue<R[K]>> extends true
-    ? K & string
-    : ExtractWriteValue<R[K]> extends undefined
+  [
+    K in keyof R as IsUnknown<ExtractWriteValue<R[K]>> extends true
       ? K & string
-      : never]?: RelaxArrayWrite<ExtractWriteValue<R[K]>>;
+      : ExtractWriteValue<R[K]> extends undefined
+        ? K & string
+        : never
+  ]?: RelaxArrayWrite<ExtractWriteValue<R[K]>>;
 };
 
 type TupleDefs<A extends [string, Type<any, any, any>][]> = A[number];
 type TupleReq<A extends [string, Type<any, any, any>][]> = {
-  [E in TupleDefs<A> as IsUnknown<ExtractWriteValue<E[1]>> extends true
-    ? never
-    : ExtractWriteValue<E[1]> extends undefined
+  [
+    E in TupleDefs<A> as IsUnknown<ExtractWriteValue<E[1]>> extends true
       ? never
-      : E[0]]: ReqValue<ExtractWriteValue<E[1]>>;
+      : ExtractWriteValue<E[1]> extends undefined
+        ? never
+        : E[0]
+  ]: ReqValue<ExtractWriteValue<E[1]>>;
 };
 type TupleOpt<A extends [string, Type<any, any, any>][]> = {
-  [E in TupleDefs<A> as IsUnknown<ExtractWriteValue<E[1]>> extends true
-    ? E[0]
-    : ExtractWriteValue<E[1]> extends undefined
+  [
+    E in TupleDefs<A> as IsUnknown<ExtractWriteValue<E[1]>> extends true
       ? E[0]
-      : never]?: ExtractWriteValue<E[1]>;
+      : ExtractWriteValue<E[1]> extends undefined
+        ? E[0]
+        : never
+  ]?: ExtractWriteValue<E[1]>;
 };
 type TupleWrite<A extends [string, Type<any, any, any>][]> = TupleReq<A> & TupleOpt<A>;
 
