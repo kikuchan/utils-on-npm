@@ -2,6 +2,158 @@ import { Decimal } from '@kikuchan/decimal';
 import { describe, expect, it } from 'vitest';
 import { Calendar } from '../src/index';
 
+describe('Calendar format tokens', () => {
+  it.each(['Y', 'y'])('supports arbitrary minimum widths for %s', (token) => {
+    const date = new Calendar(-123, 1, 1);
+    expect(date.format([1, 2, 3, 4, 5, 10].map((width) => token.repeat(width)).join(' '))).toBe(
+      '-123 -123 -123 -0123 -00123 -0000000123',
+    );
+    for (const value of ['1', '+1', '-1', '+1000000']) {
+      expect(Calendar.parse(`${value}-1`, `${token.repeat(5)}-M`, 'utc').year()).toBe(BigInt(value));
+    }
+    expect(new Calendar(123, 1, 1).format(token.repeat(2))).toBe('123');
+    expect(new Calendar(0, 1, 1).format(token.repeat(3))).toBe('000');
+  });
+
+  it.each(['G', 'g'])('supports arbitrary minimum widths for %s', (token) => {
+    expect(new Calendar(0, 1, 1).format(token.repeat(5))).toBe('BC 00001');
+    expect(new Calendar(123, 1, 1).format(token.repeat(2))).toBe(token === 'G' ? '123 AD' : '123');
+    expect(Calendar.parse('BC1-1', `${token.repeat(5)}-M`, 'utc').year()).toBe(0n);
+    expect(Calendar.parse(`${token === 'G' ? '123AD' : '123'}-1`, `${token.repeat(2)}-M`, 'utc').year()).toBe(123n);
+    expect(() => Calendar.parse('BC0-1', `${token}-M`, 'utc')).toThrow('era year must be at least 1');
+    expect(() => Calendar.parse(`${token === 'G' ? '0AD' : '0'}-1`, `${token}-M`, 'utc')).toThrow(
+      'era year must be at least 1',
+    );
+    expect(() => Calendar.parse('+1-1', `${token}-M`, 'utc')).toThrow();
+  });
+
+  it.each([
+    [-1000000n, '-1000000'],
+    [-1n, '-000001'],
+    [0n, '0000'],
+    [1n, '0001'],
+    [9999n, '9999'],
+    [10000n, '+010000'],
+    [1000000n, '+1000000'],
+  ])('formats and parses ISO year %s', (year, expected) => {
+    const value = new Calendar(year, 1, 1).format('IY-MM-DD');
+    expect(value).toBe(`${expected}-01-01`);
+    expect(Calendar.parse(value, undefined, 'utc').year()).toBe(year);
+  });
+
+  it('preserves arbitrary fractional precision and normalizes trailing zeros', () => {
+    const value = '12.12345678901234567890123456789';
+    const date = Calendar.parse(`2026-1-1T0:0:${value}00Z`, undefined, 'utc');
+    expect(date.seconds().toString()).toBe(value);
+    expect(date.format('ss.S*')).toBe(value);
+    expect(date.format('ss.SSSSSSSSSS')).toBe('12.1234567890');
+    expect(Calendar.parse('2026-1-1 12.1234567890', 'Y-M-DD ss.SSSSSSSSSS', 'utc').seconds().toString()).toBe(
+      '12.123456789',
+    );
+    expect(Calendar.fromEpoch('12.5').format('ss.SSSSS')).toBe('12.50000');
+    expect(Calendar.fromEpoch(12).format('ss.S*')).toBe('12.0');
+    expect(() => Calendar.parse('2026-1-1 12.', 'Y-M-DD ss.S*')).toThrow();
+    expect(() => Calendar.parse('2026-1-1 12.1234', 'Y-M-DD ss.SSS')).toThrow();
+  });
+
+  it('compares repeated fractional fields by value', () => {
+    const date = Calendar.parse('2026-1-1 .10 .100', 'Y-M-DD .SS .SSS', 'utc');
+    expect(date.seconds().toString()).toBe('0.1');
+  });
+
+  it('shares bracket literals and escapes between parsing and formatting', () => {
+    const fmt = String.raw`IY-MM-DD[T]hh:mm:ss[Z]\Z[\]]\[\\`;
+    const value = '2026-09-01T02:03:04ZZ][\\';
+    const date = Calendar.parse(value, fmt, 'utc');
+    expect(date.format(fmt)).toBe(value);
+  });
+
+  it.each(['[unclosed', 'YYYY\\', '[escaped\\'])('rejects malformed format %s', (format) => {
+    expect(() => new Calendar(2026, 1, 1).format(format)).toThrow();
+    expect(() => Calendar.parse('2026', format)).toThrow();
+  });
+});
+
+describe('Calendar ISO parsing and offsets', () => {
+  it.each([
+    ['2026-9-1', '2026-09-01T00:00:00.0Z'],
+    ['+2026-9-1T2:3', '2026-09-01T02:03:00.0Z'],
+    ['2026-9-1T2:3:4', '2026-09-01T02:03:04.0Z'],
+    ['2026-9-1T2:3:4.123456789', '2026-09-01T02:03:04.123456789Z'],
+    ['2026-9-1T2:3Z', '2026-09-01T02:03:00.0Z'],
+    ['2026-9-1T2:3:4Z', '2026-09-01T02:03:04.0Z'],
+    ['+2026-9-1T2:3:4.123456789+0000', '2026-09-01T02:03:04.123456789Z'],
+    ['2026-9-1T2:3:4+09:00', '2026-08-31T17:03:04.0Z'],
+    ['2026-9-1T2:3:4+0900', '2026-08-31T17:03:04.0Z'],
+    ['2026-9-1T22:3:4-05:30', '2026-09-02T03:33:04.0Z'],
+    ['2026-9-1T22:3:4-0530', '2026-09-02T03:33:04.0Z'],
+  ])('normalizes %s', (input, expected) => {
+    expect(Calendar.parse(input, undefined, 'utc').format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe(expected);
+  });
+
+  it('uses offsets in custom formats and keeps the requested display zone', () => {
+    const date = Calendar.parse('2026/9/1 0:30 +0900', 'Y/M/DD h:mm Z', 'America/New_York');
+    expect(date.format('IY-MM-DD[T]hh:mm:ssZ')).toBe('2026-08-31T11:30:00-04:00');
+    expect(date.zone()).toBe('America/New_York');
+    expect(date.zone('Asia/Kolkata').format('Z')).toBe('+05:30');
+    expect(date.utc().format('Z')).toBe('Z');
+  });
+
+  it('requires duplicate offsets to agree', () => {
+    expect(Calendar.parse('2026-1-1 Z +0000', 'Y-M-DD Z Z', 'utc').format('Z')).toBe('Z');
+    expect(() => Calendar.parse('2026-1-1 Z +0900', 'Y-M-DD Z Z')).toThrow('offset is duplicated');
+  });
+
+  it.each([
+    '',
+    '2026-2-30',
+    '2026-13-1',
+    '2026-9-1T24:00',
+    '2026-9-1T1:60',
+    '2026-9-1T1:00:60Z',
+    '2026-9-1T1:00:00.Z',
+    '2026-9-1T1:00:00+24:00',
+    '2026-9-1T1:00:00+09:60',
+    '2026-9-1T1:00:00+9:00',
+    '2026-9-1T1:00:00Z trailing',
+    '20260901',
+    '2026-09-01Z',
+  ])('rejects invalid or unsupported ISO input %s', (input) => {
+    expect(() => Calendar.parse(input)).toThrow('value does not match a supported ISO date format');
+  });
+
+  it('does not treat an empty format as omitted or suppress zone errors', () => {
+    expect(() => Calendar.parse('2026-9-1', '')).toThrow('format does not match value');
+    expect(() => Calendar.parse('2026-9-1', undefined, 'Invalid/Zone')).toThrow(RangeError);
+  });
+
+  it('defaults date-only and datetime inputs to local time', () => {
+    const inputs = [
+      ['2026-09-01', new Date(2026, 8, 1)],
+      ['2026-09-01T12:34:56', new Date(2026, 8, 1, 12, 34, 56)],
+      ['2026-03-08T02:30:00', new Date(2026, 2, 8, 2, 30)],
+      ['2026-11-01T01:30:00', new Date(2026, 10, 1, 1, 30)],
+    ] as const;
+    for (const [input, native] of inputs) {
+      const date = Calendar.parse(input);
+      expect(date.zone()).toBe('local');
+      expect(date.epoch().toString()).toBe(Decimal(native.getTime()).div(1000).toString());
+    }
+    expect(Calendar.parse('2026/9/1', 'Y/M/DD').epoch().toString()).toBe(
+      Decimal(new Date(2026, 8, 1).getTime())
+        .div(1000)
+        .toString(),
+    );
+    const explicit = Calendar.parse('2026-09-01T00:00:00Z');
+    expect(explicit.zone()).toBe('local');
+    expect(explicit.epoch().toString()).toBe(
+      Decimal(Date.UTC(2026, 8, 1))
+        .div(1000)
+        .toString(),
+    );
+  });
+});
+
 describe('Calendar UTC conversion', () => {
   it('converts epoch 0 to 1970-01-01T00:00:00Z', () => {
     const date = Calendar.fromEpoch(0, 'utc');
@@ -276,35 +428,18 @@ describe('Calendar time zone conversion', () => {
     expect(date.epoch().toString()).toBe(expectedEpoch.toString());
   });
 
-  it('falls back after multiple offset iterations', () => {
-    const original = Intl.DateTimeFormat;
-    let calls = 0;
-
-    Intl.DateTimeFormat = class {
-      constructor(_locale: string, _options: Intl.DateTimeFormatOptions) {}
-      formatToParts() {
-        calls += 1;
-        return [
-          { type: 'year', value: '2000' },
-          { type: 'month', value: '01' },
-          { type: 'day', value: '02' },
-          { type: 'hour', value: '00' },
-          { type: 'minute', value: '00' },
-          { type: 'second', value: '00' },
-        ] as Intl.DateTimeFormatPart[];
-      }
-    } as unknown as typeof Intl.DateTimeFormat;
-
-    try {
-      const date = Calendar.fromComponents(
-        { year: 2000n, month: 1n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 },
-        'Etc/Chaos-NonConverge',
-      );
-      expect(date.epoch().toString()).toBeDefined();
-      expect(calls).toBe(4);
-    } finally {
-      Intl.DateTimeFormat = original;
-    }
+  it.each([
+    ['America/New_York', '2026-03-08T02:30:00', '2026-03-08T07:30:00Z'],
+    ['America/New_York', '2026-11-01T01:30:00', '2026-11-01T05:30:00Z'],
+    ['Europe/Berlin', '2026-03-29T02:30:00', '2026-03-29T01:30:00Z'],
+    ['Europe/Berlin', '2026-10-25T02:30:00', '2026-10-25T00:30:00Z'],
+    ['Australia/Lord_Howe', '2026-10-04T02:15:00', '2026-10-03T15:45:00Z'],
+    ['Australia/Lord_Howe', '2026-04-05T01:45:00', '2026-04-04T14:45:00Z'],
+    ['Pacific/Apia', '2011-12-30T12:00:00', '2011-12-30T22:00:00Z'],
+  ])('resolves gaps and overlaps in %s at %s', (zone, input, expected) => {
+    const date = Calendar.parse(input, undefined, zone);
+    expect(date.epoch().toString()).toBe(Decimal(Date.parse(expected)).div(1000).toString());
+    expect(date.zone()).toBe(zone);
   });
 });
 
@@ -742,12 +877,12 @@ describe('Calendar parsing', () => {
     expect(() => Calendar.parse('AD 2024-01-01', 'GGGG-MM-DD', 'utc')).toThrow('format does not match value');
   });
 
-  it('throws when year tokens cannot reach the minimum length', () => {
-    expect(() => Calendar.parse('20-01', 'YYYY-MM', 'utc')).toThrow('format does not match value');
+  it('accepts years shorter than the output width', () => {
+    expect(Calendar.parse('20-01', 'YYYY-MM', 'utc').format('YYYY-MM')).toBe('0020-01');
   });
 
   it('throws when remaining minimum length exceeds the input', () => {
-    expect(() => Calendar.parse('1-2', 'y-YYYY', 'utc')).toThrow('format does not match value');
+    expect(() => Calendar.parse('1-', 'y-YYYY', 'utc')).toThrow('format does not match value');
   });
 
   it('throws when month is out of range', () => {

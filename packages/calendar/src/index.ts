@@ -28,7 +28,7 @@ type YearStepOptions = {
 
 type FormatTokenBase = {
   token: string;
-  kind: 'year' | 'month' | 'day' | 'hour' | 'minutes' | 'seconds' | 'fraction' | 'era';
+  kind: 'year' | 'month' | 'day' | 'hour' | 'minutes' | 'seconds' | 'fraction' | 'era' | 'offset';
   regex: string;
   minLength: number;
   format: (input: {
@@ -42,6 +42,7 @@ type FormatTokenBase = {
     eraYear: string;
     bc: string;
     ad: string;
+    offsetMinutes: () => number;
   }) => string;
 };
 
@@ -51,7 +52,7 @@ type FormatTokenWithMaxLength = FormatTokenBase & {
 };
 
 type FormatTokenWithoutMaxLength = FormatTokenBase & {
-  kind: 'year' | 'era';
+  kind: 'year' | 'era' | 'offset';
   maxLength?: undefined;
 };
 
@@ -69,6 +70,20 @@ function formatSignedYear(value: string, minDigits: number) {
   const digits = negative ? value.slice(1) : value;
   const padded = digits.padStart(minDigits, '0');
   return negative ? `-${padded}` : padded;
+}
+
+function formatISOYear(value: string) {
+  const year = BigInt(value);
+  if (year >= 0n && year <= 9999n) return value.padStart(4, '0');
+  return `${year < 0n ? '-' : '+'}${value.replace(/^-/, '').padStart(6, '0')}`;
+}
+
+function formatOffset(minutes: number) {
+  if (minutes === 0) return 'Z';
+  const absolute = Math.abs(minutes);
+  return `${minutes < 0 ? '+' : '-'}${Math.floor(absolute / 60)
+    .toString()
+    .padStart(2, '0')}:${(absolute % 60).toString().padStart(2, '0')}`;
 }
 
 function toBigInt(value: bigint | number | DecimalLike, name: string): bigint {
@@ -272,14 +287,23 @@ function calendarToEpoch(components: CalendarComponents, zone: Zone): Decimal {
     .add(Decimal(components.hour * SECONDS_PER_HOUR + components.minutes * SECONDS_PER_MINUTE).add(components.seconds));
   if (zone.toLowerCase() === 'utc') return localEpoch;
 
-  let utcEpoch = localEpoch;
-  for (let i = 0; i < 4; i++) {
-    const offsetMinutes = offsetMinutesForEpoch(utcEpoch, zone);
-    const candidate = localEpoch.add(Decimal(offsetMinutes).mul(SECONDS_PER_MINUTE));
-    if (candidate.eq(utcEpoch)) return candidate;
-    utcEpoch = candidate;
-  }
-  return utcEpoch;
+  // Sample both sides of a transition, including full-day political offset changes.
+  const offsets = new Set(
+    [-2n, 0n, 2n].map((days) => offsetMinutesForEpoch(localEpoch.add(days * SECONDS_PER_DAY), zone)),
+  );
+  const candidates = [...offsets]
+    .map((offset) => {
+      const epoch = localEpoch.add(Decimal(offset).mul(SECONDS_PER_MINUTE));
+      const actualOffset = offsetMinutesForEpoch(epoch, zone);
+      return { epoch, shift: offset - actualOffset };
+    })
+    .sort((a, b) => (a.epoch.lt(b.epoch) ? -1 : a.epoch.gt(b.epoch) ? 1 : 0));
+  // Overlaps choose the earlier instant; gaps move forward by the gap's duration.
+  const exact = candidates.find(({ shift }) => shift === 0);
+  if (exact) return exact.epoch;
+  const forward = candidates.filter(({ shift }) => shift > 0).sort((a, b) => a.shift - b.shift);
+  if (forward.length) return forward[0].epoch;
+  throw new Error('could not resolve time zone offset');
 }
 
 function normalizeCalendarInput(input: CalendarInput): CalendarComponents {
@@ -304,56 +328,18 @@ function ensureZone(value: string | undefined): Zone {
 
 const FORMAT_TOKENS: FormatToken[] = [
   {
-    token: 'GGGG',
-    kind: 'era',
-    regex: '(?:BC ?\\d+|\\d+ ?AD)',
-    minLength: 1,
-    format: ({ bc, ad, eraYear }) => `${bc}${eraYear.padStart(4, '0')}${ad}`,
-  },
-  {
-    token: 'gggg',
-    kind: 'era',
-    regex: '(?:BC ?\\d+|\\d+)',
-    minLength: 1,
-    format: ({ bc, eraYear }) => `${bc}${eraYear.padStart(4, '0')}`,
-  },
-  {
-    token: 'YYYY',
+    token: 'IY',
     kind: 'year',
-    regex: '-?\\d+',
-    minLength: 4,
-    format: ({ year }) => formatSignedYear(year, 4),
-  },
-  {
-    token: 'yyyy',
-    kind: 'year',
-    regex: '-?\\d+',
-    minLength: 4,
-    format: ({ year }) => formatSignedYear(year, 4),
-  },
-  {
-    token: 'SSSSSS',
-    kind: 'fraction',
-    regex: '\\d{1,6}',
+    regex: '[+-]?\\d+',
     minLength: 1,
-    maxLength: 6,
-    format: ({ fraction }) => fraction.padEnd(6, '0').slice(0, 6),
+    format: ({ year }) => formatISOYear(year),
   },
   {
-    token: 'SSS',
-    kind: 'fraction',
-    regex: '\\d{1,3}',
+    token: 'Z',
+    kind: 'offset',
+    regex: '(?:Z|[+-]\\d{2}:?\\d{2})',
     minLength: 1,
-    maxLength: 3,
-    format: ({ fraction }) => fraction.padEnd(3, '0').slice(0, 3),
-  },
-  {
-    token: 'SS',
-    kind: 'fraction',
-    regex: '\\d{1,2}',
-    minLength: 1,
-    maxLength: 2,
-    format: ({ fraction }) => fraction.padEnd(2, '0').slice(0, 2),
+    format: ({ offsetMinutes }) => formatOffset(offsetMinutes()),
   },
   {
     token: 'MM',
@@ -411,36 +397,41 @@ const FORMAT_TOKENS: FormatToken[] = [
     maxLength: 2,
     format: ({ seconds }) => seconds.floor().toString().padStart(2, '0'),
   },
-  {
-    token: 'G',
-    kind: 'era',
-    regex: '(?:BC ?\\d+|\\d+ ?AD)',
-    minLength: 1,
-    format: ({ bc, ad, eraYear }) => `${bc}${eraYear}${ad}`,
-  },
-  {
-    token: 'g',
-    kind: 'era',
-    regex: '(?:BC ?\\d+|\\d+)',
-    minLength: 1,
-    format: ({ bc, eraYear }) => `${bc}${eraYear}`,
-  },
-  {
-    token: 'y',
-    kind: 'year',
-    regex: '-?\\d+',
-    minLength: 1,
-    format: ({ year }) => year,
-  },
-  {
-    token: 'S',
-    kind: 'fraction',
-    regex: '\\d{1}',
-    minLength: 1,
-    maxLength: 1,
-    format: ({ fraction }) => fraction.padEnd(1, '0').slice(0, 1),
-  },
 ];
+
+function repeatedToken(value: string): FormatToken {
+  const width = value.length;
+  switch (value[0]) {
+    case 'Y':
+    case 'y':
+      return {
+        token: value,
+        kind: 'year',
+        regex: '[+-]?\\d+',
+        minLength: 1,
+        format: ({ year }) => formatSignedYear(year, width),
+      };
+    case 'G':
+    case 'g':
+      return {
+        token: value,
+        kind: 'era',
+        regex: value[0] === 'G' ? '(?:BC ?\\d+|\\d+ ?AD)' : '(?:BC ?\\d+|\\d+)',
+        minLength: 1,
+        format: ({ bc, ad, eraYear }) => `${bc}${eraYear.padStart(width, '0')}${value[0] === 'G' ? ad : ''}`,
+      };
+    default:
+      return {
+        token: value,
+        kind: 'fraction',
+        regex: value === 'S*' ? '\\d+' : `\\d{1,${width}}`,
+        minLength: 1,
+        maxLength: value === 'S*' ? Infinity : width,
+        format: ({ fraction }) =>
+          value === 'S*' ? fraction.replace(/0+$/, '') || '0' : fraction.padEnd(width, '0').slice(0, width),
+      };
+  }
+}
 
 type FormatPart =
   | {
@@ -460,7 +451,15 @@ type ParseState = {
   minutes?: bigint;
   secondsWhole?: bigint;
   fraction?: string;
+  offsetSeconds?: bigint;
 };
+
+type ParsedDateTime = {
+  components: CalendarInput;
+  offsetSeconds?: bigint;
+};
+
+class ParseError extends Error {}
 
 function tokenizeFormat(format: string): FormatPart[] {
   const tokens = [...FORMAT_TOKENS].sort((a, b) => b.token.length - a.token.length);
@@ -468,6 +467,33 @@ function tokenizeFormat(format: string): FormatPart[] {
   let index = 0;
 
   while (index < format.length) {
+    if (format[index] === '\\') {
+      if (index + 1 === format.length) throw new Error('incomplete format escape');
+      parts.push({ type: 'literal', value: format[index + 1] });
+      index += 2;
+      continue;
+    }
+    if (format[index] === '[') {
+      let literal = '';
+      index += 1;
+      while (index < format.length && format[index] !== ']') {
+        if (format[index] === '\\') {
+          index += 1;
+          if (index === format.length) throw new Error('incomplete format escape');
+        }
+        literal += format[index++];
+      }
+      if (index === format.length) throw new Error('unclosed format literal');
+      parts.push({ type: 'literal', value: literal });
+      index += 1;
+      continue;
+    }
+    const repeated = /^(?:S\*|S+|Y+|y+|G+|g+)/.exec(format.slice(index));
+    if (repeated) {
+      parts.push({ type: 'token', token: repeatedToken(repeated[0]) });
+      index += repeated[0].length;
+      continue;
+    }
     let matched = false;
     for (const token of tokens) {
       if (format.startsWith(token.token, index)) {
@@ -512,15 +538,17 @@ function digitsSlice(value: string, start: number, length: number): string | und
 function parseEraYear(value: string): bigint {
   if (value.startsWith('BC')) {
     const eraYear = BigInt(value.slice(2).trim());
-    if (eraYear <= 0n) throw new Error('era year must be at least 1');
+    if (eraYear <= 0n) throw new ParseError('era year must be at least 1');
     return 1n - eraYear;
   }
   if (value.endsWith('AD')) {
     const eraYear = BigInt(value.slice(0, -2).trim());
-    if (eraYear <= 0n) throw new Error('era year must be at least 1');
+    if (eraYear <= 0n) throw new ParseError('era year must be at least 1');
     return eraYear;
   }
-  return BigInt(value);
+  const eraYear = BigInt(value);
+  if (eraYear <= 0n) throw new ParseError('era year must be at least 1');
+  return eraYear;
 }
 
 function daysInMonth(year: bigint, month: bigint): bigint {
@@ -531,7 +559,7 @@ function daysInMonth(year: bigint, month: bigint): bigint {
   return end - start;
 }
 
-function parseByFormat(value: string, format: string): CalendarInput {
+function parseByFormat(value: string, format: string): ParsedDateTime {
   const parts = tokenizeFormat(format);
   const minRemaining = computeMinRemaining(parts);
   let conflictError: string | undefined;
@@ -566,30 +594,57 @@ function parseByFormat(value: string, format: string): CalendarInput {
 
     switch (token.kind) {
       case 'era': {
-        const regex = new RegExp(`^${token.regex}`);
-        const match = regex.exec(value.slice(valueIndex));
-        if (!match) return undefined;
-        const parsed = parseEraYear(match[0]);
-        const nextState = applyValue(state, 'year', parsed, 'year');
-        if (!nextState) return undefined;
-        return parseAt(partIndex + 1, valueIndex + match[0].length, nextState);
+        const regex = new RegExp(`^${token.regex}$`);
+        for (let len = 1; len <= remainingMax; len += 1) {
+          const text = value.slice(valueIndex, valueIndex + len);
+          if (!regex.test(text)) continue;
+          let parsed: bigint;
+          try {
+            parsed = parseEraYear(text);
+          } catch (error) {
+            if (!(error instanceof ParseError)) throw error;
+            conflictError ??= error.message;
+            continue;
+          }
+          const nextState = applyValue(state, 'year', parsed, 'year');
+          if (!nextState) continue;
+          const result = parseAt(partIndex + 1, valueIndex + len, nextState);
+          if (result) return result;
+        }
+        return undefined;
       }
       case 'year': {
-        const hasSign = value[valueIndex] === '-';
+        const hasSign = value[valueIndex] === '-' || value[valueIndex] === '+';
         const digitsStart = hasSign ? valueIndex + 1 : valueIndex;
         const maxLen = value.length - digitsStart - remainingMin;
-        const minLen = token.token === 'y' ? 1 : token.minLength;
+        const minLen = token.minLength;
         if (maxLen < minLen) return undefined;
         for (let len = minLen; len <= maxLen; len += 1) {
           const digits = digitsSlice(value, digitsStart, len);
           if (!digits) break;
-          const parsed = BigInt(`${hasSign ? '-' : ''}${digits}`);
+          const parsed = BigInt(`${value[valueIndex] === '-' ? '-' : ''}${digits}`);
           const nextState = applyValue(state, 'year', parsed, 'year');
           if (!nextState) continue;
           const result = parseAt(partIndex + 1, digitsStart + len, nextState);
           if (result) return result;
         }
         return undefined;
+      }
+      case 'offset': {
+        const match = new RegExp(`^${token.regex}`).exec(value.slice(valueIndex));
+        if (!match) return undefined;
+        const text = match[0];
+        let offsetSeconds = 0n;
+        if (text !== 'Z') {
+          const digits = text.slice(1).replace(':', '');
+          const hours = BigInt(digits.slice(0, 2));
+          const minutes = BigInt(digits.slice(2));
+          if (hours > 23n || minutes > 59n) return undefined;
+          offsetSeconds = (hours * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE) * (text[0] === '-' ? -1n : 1n);
+        }
+        const nextState = applyValue(state, 'offsetSeconds', offsetSeconds, 'offset');
+        if (!nextState) return undefined;
+        return parseAt(partIndex + 1, valueIndex + text.length, nextState);
       }
       case 'month': {
         const maxLen = Math.min(token.maxLength, remainingMax);
@@ -667,7 +722,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
         for (let len = maxLen; len >= minLen; len -= 1) {
           const digits = digitsSlice(value, valueIndex, len);
           if (!digits) continue;
-          const nextState = applyValue(state, 'fraction', digits, 'fraction');
+          const nextState = applyValue(state, 'fraction', digits.replace(/0+$/, '') || '0', 'fraction');
           if (!nextState) continue;
           const result = parseAt(partIndex + 1, valueIndex + len, nextState);
           if (result) return result;
@@ -679,8 +734,8 @@ function parseByFormat(value: string, format: string): CalendarInput {
 
   const parsed = parseAt(0, 0, {});
   if (!parsed) {
-    if (conflictError) throw new Error(conflictError);
-    throw new Error('format does not match value');
+    if (conflictError) throw new ParseError(conflictError);
+    throw new ParseError('format does not match value');
   }
 
   if (parsed.year === undefined || parsed.month === undefined) {
@@ -695,7 +750,7 @@ function parseByFormat(value: string, format: string): CalendarInput {
   const secondsBase = parsed.secondsWhole ?? 0n;
 
   const maxDay = daysInMonth(year, month);
-  if (day < 1n || day > maxDay) throw new Error('day is out of range');
+  if (day < 1n || day > maxDay) throw new ParseError('day is out of range');
 
   let seconds = Decimal(secondsBase);
   if (parsed.fraction) {
@@ -703,12 +758,8 @@ function parseByFormat(value: string, format: string): CalendarInput {
   }
 
   return {
-    year,
-    month,
-    day,
-    hour,
-    minutes,
-    seconds,
+    components: { year, month, day, hour, minutes, seconds },
+    offsetSeconds: parsed.offsetSeconds,
   };
 }
 
@@ -785,8 +836,32 @@ export class Calendar {
     return new Calendar(epoch, zone);
   }
 
-  static parse(value: string, format: string, zone: Zone = 'utc') {
-    return Calendar.fromComponents(parseByFormat(value, format), zone);
+  static parse(value: string, format?: string, zone: Zone = 'local') {
+    const formats =
+      format === undefined
+        ? [
+            'IY-MM-DD[T]hh:mm:ss.S*Z',
+            'IY-MM-DD[T]hh:mm:ssZ',
+            'IY-MM-DD[T]hh:mmZ',
+            'IY-MM-DD[T]hh:mm:ss.S*',
+            'IY-MM-DD[T]hh:mm:ss',
+            'IY-MM-DD[T]hh:mm',
+            'IY-MM-DD',
+          ]
+        : [format];
+    for (const candidate of formats) {
+      let parsed: ParsedDateTime;
+      try {
+        parsed = parseByFormat(value, candidate);
+      } catch (error) {
+        if (!(error instanceof ParseError) || format !== undefined) throw error;
+        continue;
+      }
+      if (parsed.offsetSeconds === undefined) return Calendar.fromComponents(parsed.components, zone);
+      const epoch = calendarToEpoch(normalizeCalendarInput(parsed.components), 'utc').sub(parsed.offsetSeconds);
+      return Calendar.fromEpoch(epoch, zone);
+    }
+    throw new ParseError('value does not match a supported ISO date format');
   }
 
   clone() {
@@ -1017,6 +1092,7 @@ export class Calendar {
       eraYear: eyear,
       bc,
       ad,
+      offsetMinutes: () => offsetMinutesForEpoch(this.#epoch, this.#zone),
     };
     for (const part of formatParts) {
       formatted += part.type === 'literal' ? part.value : part.token.format(tokenInput);

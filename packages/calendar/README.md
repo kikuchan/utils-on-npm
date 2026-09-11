@@ -51,7 +51,7 @@ new Calendar(new Date(), 'local');
 Calendar.fromEpoch(epochSeconds, zone?)       // from Unix epoch seconds
 Calendar.fromDate(date, zone?)                // from native Date
 Calendar.fromComponents(components, zone?)    // from object { year, month, day, ... }
-Calendar.parse(value, format, zone?)          // from formatted string
+Calendar.parse(value, format?, zone?)         // from a formatted string; ISO-style input by default, zone defaults to local
 ```
 
 ## Time Zones
@@ -71,6 +71,11 @@ date.zone$('Asia/Tokyo');
 date.utc$();
 date.local$();
 ```
+
+`Calendar.parse()` defaults to `local`. Other constructors and factories default to `utc`.
+When interpreting wall-clock components in a local or IANA zone, an overlapping time selects the earlier instant,
+and a nonexistent time moves forward by the offset gap. This matches native `Date` disambiguation, including
+transitions that are not one hour long.
 
 ## API Overview
 
@@ -197,6 +202,7 @@ date.format('YYYY-MM-DD');                  // "1970-01-01"
 date.format('YYYY-MM-DD hh:mm:ss');         // "1970-01-01 00:00:12"
 date.format('YYYY-MM-DD hh:mm:ss.SSS');     // "1970-01-01 00:00:12.345"
 date.format('YYYY-MM-DD hh:mm:ss.SSSSSS');  // "1970-01-01 00:00:12.345600"
+date.format('IY-MM-DD[T]hh:mm:ss.S*Z');     // "1970-01-01T00:00:12.3456Z"
 ```
 
 ## Parsing
@@ -204,36 +210,104 @@ date.format('YYYY-MM-DD hh:mm:ss.SSSSSS');  // "1970-01-01 00:00:12.345600"
 ```ts
 const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc');
 date.year(); // 2024n
+
+// Omitted format: try the supported ISO-style formats in order.
+Calendar.parse('2026-09-01');
+Calendar.parse('2026-09-01T12:34');
+Calendar.parse('2026-09-01T12:34:56.123456789+09:00');
+
+// Permissive input, canonical output, with an explicit display zone.
+Calendar.parse('+2026-9-1T2:3:4.123456789+0000', undefined, 'utc')
+  .format('IY-MM-DD[T]hh:mm:ss.S*Z');
+// "2026-09-01T02:03:04.123456789Z"
 ```
 
 Parsing defaults missing lower-order components to the start of the period (day = 1, time = 00:00:00), requires year
 and month tokens, and validates calendar ranges (e.g. invalid dates throw). Duplicate tokens must resolve to the same
 value.
 
+When `format` is omitted or `undefined`, parsing tries these ordinary format strings using the same parser as
+explicit formats:
+
+```ts
+[
+  'IY-MM-DD[T]hh:mm:ss.S*Z',
+  'IY-MM-DD[T]hh:mm:ssZ',
+  'IY-MM-DD[T]hh:mmZ',
+  'IY-MM-DD[T]hh:mm:ss.S*',
+  'IY-MM-DD[T]hh:mm:ss',
+  'IY-MM-DD[T]hh:mm',
+  'IY-MM-DD',
+]
+```
+
+The first fully matching, valid result is used. An empty format is an explicit format, not a request for ISO parsing.
+Inputs may omit padding (such as `2026-9-1`), but invalid calendar dates, out-of-range times and trailing characters
+are rejected. Basic dates, week dates, ordinal dates, comma fractions, `24:00` and leap seconds are not included in
+the default formats.
+
+#### Parsing time zones
+
+- Without an input offset, both date-only and datetime strings are interpreted in `zone`, which defaults to `local`.
+- With an input offset, that offset determines the instant; `zone` selects the returned instance's display zone.
+- Unlike `Date.parse()`, date-only strings also use the requested zone (local by default), rather than implicitly using UTC.
+- Use an explicit offset or `zone: 'utc'` (the third positional argument) when parsing must be independent of the host zone.
+
+```ts
+Calendar.parse('2026-09-01T12:00:00');                  // local noon
+Calendar.parse('2026-09-01', undefined, 'utc');         // UTC midnight
+Calendar.parse('2026-09-01T12:00:00+09:00', undefined, 'utc')
+  .format('IY-MM-DD[T]hh:mm:ssZ');
+// "2026-09-01T03:00:00Z"
+```
+
 ### Format Tokens
 
-| Token    | Description                        | Example               |
-|----------|------------------------------------|-----------------------|
-| `YYYY`   | 4+ digit year                      | `0123`                |
-| `yyyy`   | 4+ digit year (alias)              | `0123`                |
-| `y`      | Year without padding               | `123`                 |
-| `MM`     | 2-digit month (1-2 digits parsed)  | `06`                  |
-| `M`      | Month without padding              | `6`                   |
-| `DD`     | 2-digit day (1-2 digits parsed)    | `15`                  |
-| `hh`     | 2-digit hour (1-2 digits parsed)   | `14`                  |
-| `h`      | Hour without padding               | `4`                   |
-| `mm`     | 2-digit minutes (1-2 digits parsed)| `30`                  |
-| `ss`     | 2-digit seconds (1-2 digits parsed)| `45`                  |
-| `S`      | Fractional seconds (1 digit)       | `1`                   |
-| `SS`     | Fractional seconds (2 digits)      | `12`                  |
-| `SSS`    | Fractional seconds (3 digits)      | `123`                 |
-| `SSSSSS` | Fractional seconds (6 digits)      | `123456`              |
-| `G`      | Era year with AD/BC                | `BC 1` / `123 AD`     |
-| `GGGG`   | Era year padded with AD/BC         | `BC 0001` / `0123 AD` |
-| `g`      | Era year with BC prefix            | `BC 1` / `123`        |
-| `gggg`   | Era year padded with BC prefix     | `BC 0001` / `0123`    |
+| Token | Parsing | Formatting |
+|-------|---------|------------|
+| `Y` / `y`, repeated n times | Optional `+` / `-`, one or more digits | Minimum n digits, excluding sign; negative sign only |
+| `IY` | Same as `Y` | Four digits for 0–9999; otherwise sign and at least six digits |
+| `G`, repeated n times | Positive era year with `BC` prefix or `AD` suffix | Minimum n digits with `BC` or `AD` |
+| `g`, repeated n times | Positive era year with optional `BC` prefix | Minimum n digits, `BC` only for years before AD 1 |
+| `MM` / `M` | 1–2 digit month | Two digits / no padding |
+| `DD` | 1–2 digit day | Two digits |
+| `hh` / `h` | 1–2 digit hour | Two digits / no padding |
+| `mm` | 1–2 digit minute | Two digits |
+| `ss` | 1–2 digit whole second | Two digits |
+| `S`, repeated n times | 1–n fractional digits | Exactly n digits, zero-padded or truncated |
+| `S*` | One or more fractional digits, no upper limit | All fractional digits, without trailing zeros; `0` for integer seconds |
+| `Z` | `Z`, `±HH:mm` or `±HHmm` | `Z` for zero offset, otherwise `±HH:mm` |
+
+Year widths never truncate: `YY` formats year 2026 as `2026`, not `26`. All year widths accept shorter inputs.
+`YYYY` and `yyyy` are aliases, as are the corresponding uppercase/lowercase tokens at any other width.
+
+`IY` uses ECMAScript's four-digit/signed-six-digit year convention where the year fits. Years needing more than six
+digits are emitted in full with a sign as a library extension; ISO expanded-year interchange requires agreement on
+the digit count. For example, year -1 formats as `-000001`, 10000 as `+010000`, and 1000000 as `+1000000`.
+
+The decimal point is a literal: `.S*` requires at least one digit after it. Parsing preserves the numeric fractional
+precision, not the original number of trailing zeros. Duplicate fractional and offset tokens are compared by value.
 
 Era tokens map to proleptic years where year 1 BC is `0`, 2 BC is `-1`, and so on.
+Era years must be at least 1 and do not accept signs; the space next to `BC` or `AD` may be omitted on input.
+
+#### Literals and escaping
+
+Wrap text in `[...]` to treat it as a literal, or use a backslash to escape the next character. These rules are shared
+by parsing and formatting. For example, `[T]` emits `T` and `[Z]` emits a literal `Z` without interpreting an offset.
+Characters that are not tokens remain literals. Unclosed brackets and incomplete escapes are format errors.
+
+```ts
+date.format('IY-MM-DD[T]hh:mm:ssZ');
+date.format(String.raw`[Year:] YYYY \[MM\]`);
+```
+
+#### Compatibility changes
+
+- `parse()` now defaults to `local`; pass `'utc'` explicitly to retain UTC interpretation and display.
+- `Z`, `IY`, brackets and backslashes now have format syntax meaning; quote or escape them when literal text is intended.
+- Repeated year, era-year and fraction letters form a single token of arbitrary width.
+- Short and explicitly positive years are accepted, and unmarked era year zero is rejected.
 
 ## Important Notes
 
@@ -242,6 +316,8 @@ Era tokens map to proleptic years where year 1 BC is `0`, 2 BC is `-1`, and so o
 - **Bigint**: Year, month, day, hour, and minutes are returned as `bigint`
 - **Weekday**: Sunday = 0, Monday = 1, ..., Saturday = 6
 - **Time Zones**: Uses `Intl.DateTimeFormat` for IANA zone support
+- **Extreme years**: Local/IANA offset lookup clamps instants to the native `Date` range; offsets for years beyond that
+  range are not calculated for the actual year. UTC and explicit input-offset arithmetic retain arbitrary precision.
 
 ## License
 
