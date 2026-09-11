@@ -9,7 +9,11 @@ describe('Calendar format tokens', () => {
       '-123 -123 -123 -0123 -00123 -0000000123',
     );
     for (const value of ['1', '+1', '-1', '+1000000']) {
-      expect(Calendar.parse(`${value}-1`, `${token.repeat(5)}-M`, 'utc').year()).toBe(BigInt(value));
+      expect(
+        Calendar.parse(`${value}-1`, `${token.repeat(5)}-M`, 'utc')
+          .utc()
+          .year(),
+      ).toBe(BigInt(value));
     }
     expect(new Calendar(123, 1, 1).format(token.repeat(2))).toBe('123');
     expect(new Calendar(0, 1, 1).format(token.repeat(3))).toBe('000');
@@ -18,8 +22,16 @@ describe('Calendar format tokens', () => {
   it.each(['G', 'g'])('supports arbitrary minimum widths for %s', (token) => {
     expect(new Calendar(0, 1, 1).format(token.repeat(5))).toBe('BC 00001');
     expect(new Calendar(123, 1, 1).format(token.repeat(2))).toBe(token === 'G' ? '123 AD' : '123');
-    expect(Calendar.parse('BC1-1', `${token.repeat(5)}-M`, 'utc').year()).toBe(0n);
-    expect(Calendar.parse(`${token === 'G' ? '123AD' : '123'}-1`, `${token.repeat(2)}-M`, 'utc').year()).toBe(123n);
+    expect(
+      Calendar.parse('BC1-1', `${token.repeat(5)}-M`, 'utc')
+        .utc()
+        .year(),
+    ).toBe(0n);
+    expect(
+      Calendar.parse(`${token === 'G' ? '123AD' : '123'}-1`, `${token.repeat(2)}-M`, 'utc')
+        .utc()
+        .year(),
+    ).toBe(123n);
     expect(() => Calendar.parse('BC0-1', `${token}-M`, 'utc')).toThrow('era year must be at least 1');
     expect(() => Calendar.parse(`${token === 'G' ? '0AD' : '0'}-1`, `${token}-M`, 'utc')).toThrow(
       'era year must be at least 1',
@@ -38,16 +50,16 @@ describe('Calendar format tokens', () => {
   ])('formats and parses ISO year %s', (year, expected) => {
     const value = new Calendar(year, 1, 1).format('IY-MM-DD');
     expect(value).toBe(`${expected}-01-01`);
-    expect(Calendar.parse(value, undefined, 'utc').year()).toBe(year);
+    expect(Calendar.parse(value, undefined, 'utc').utc().year()).toBe(year);
   });
 
   it('preserves arbitrary fractional precision and normalizes trailing zeros', () => {
     const value = '12.12345678901234567890123456789';
-    const date = Calendar.parse(`2026-1-1T0:0:${value}00Z`, undefined, 'utc');
+    const date = Calendar.parse(`2026-1-1T0:0:${value}00Z`, undefined, 'utc').utc();
     expect(date.seconds().toString()).toBe(value);
     expect(date.format('ss.S*')).toBe(value);
     expect(date.format('ss.SSSSSSSSSS')).toBe('12.1234567890');
-    expect(Calendar.parse('2026-1-1 12.1234567890', 'Y-M-DD ss.SSSSSSSSSS', 'utc').seconds().toString()).toBe(
+    expect(Calendar.parse('2026-1-1 12.1234567890', 'Y-M-DD ss.SSSSSSSSSS', 'utc').utc().seconds().toString()).toBe(
       '12.123456789',
     );
     expect(Calendar.fromEpoch('12.5').format('ss.SSSSS')).toBe('12.50000');
@@ -57,14 +69,14 @@ describe('Calendar format tokens', () => {
   });
 
   it('compares repeated fractional fields by value', () => {
-    const date = Calendar.parse('2026-1-1 .10 .100', 'Y-M-DD .SS .SSS', 'utc');
+    const date = Calendar.parse('2026-1-1 .10 .100', 'Y-M-DD .SS .SSS', 'utc').utc();
     expect(date.seconds().toString()).toBe('0.1');
   });
 
   it('shares bracket literals and escapes between parsing and formatting', () => {
     const fmt = String.raw`IY-MM-DD[T]hh:mm:ss[Z]\Z[\]]\[\\`;
     const value = '2026-09-01T02:03:04ZZ][\\';
-    const date = Calendar.parse(value, fmt, 'utc');
+    const date = Calendar.parse(value, fmt, 'utc').utc();
     expect(date.format(fmt)).toBe(value);
   });
 
@@ -88,19 +100,20 @@ describe('Calendar ISO parsing and offsets', () => {
     ['2026-9-1T22:3:4-05:30', '2026-09-02T03:33:04.0Z'],
     ['2026-9-1T22:3:4-0530', '2026-09-02T03:33:04.0Z'],
   ])('normalizes %s', (input, expected) => {
-    expect(Calendar.parse(input, undefined, 'utc').format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe(expected);
+    expect(Calendar.parse(input, undefined, 'utc').utc().format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe(expected);
   });
 
-  it('uses offsets in custom formats and keeps the requested display zone', () => {
+  it('uses input offsets independently of the input and display zones', () => {
     const date = Calendar.parse('2026/9/1 0:30 +0900', 'Y/M/DD h:mm Z', 'America/New_York');
-    expect(date.format('IY-MM-DD[T]hh:mm:ssZ')).toBe('2026-08-31T11:30:00-04:00');
-    expect(date.zone()).toBe('America/New_York');
+    expect(date.zone()).toBe('local');
+    expect(date.utc().format('IY-MM-DD[T]hh:mm:ssZ')).toBe('2026-08-31T15:30:00Z');
+    expect(date.zone('America/New_York').format('IY-MM-DD[T]hh:mm:ssZ')).toBe('2026-08-31T11:30:00-04:00');
     expect(date.zone('Asia/Kolkata').format('Z')).toBe('+05:30');
     expect(date.utc().format('Z')).toBe('Z');
   });
 
   it('requires duplicate offsets to agree', () => {
-    expect(Calendar.parse('2026-1-1 Z +0000', 'Y-M-DD Z Z', 'utc').format('Z')).toBe('Z');
+    expect(Calendar.parse('2026-1-1 Z +0000', 'Y-M-DD Z Z', 'utc').utc().format('Z')).toBe('Z');
     expect(() => Calendar.parse('2026-1-1 Z +0900', 'Y-M-DD Z Z')).toThrow('offset is duplicated');
   });
 
@@ -156,7 +169,7 @@ describe('Calendar ISO parsing and offsets', () => {
 
 describe('Calendar UTC conversion', () => {
   it('converts epoch 0 to 1970-01-01T00:00:00Z', () => {
-    const date = Calendar.fromEpoch(0, 'utc');
+    const date = Calendar.fromEpoch(0).utc();
     expect(date.year()).toBe(1970n);
     expect(date.month()).toBe(1n);
     expect(date.day()).toBe(1n);
@@ -166,12 +179,20 @@ describe('Calendar UTC conversion', () => {
   });
 
   it('converts calendar to epoch for a known UTC date', () => {
-    const date = Calendar.fromComponents({ year: 2000n, month: 1n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({
+      year: 2000n,
+      month: 1n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     expect(date.epoch().toString()).toBe('946684800');
   });
 
   it('handles negative epoch with fractional seconds', () => {
-    const date = Calendar.fromEpoch(Decimal('-1.5'), 'utc');
+    const date = Calendar.fromEpoch(Decimal('-1.5')).utc();
     expect(date.year()).toBe(1969n);
     expect(date.month()).toBe(12n);
     expect(date.day()).toBe(31n);
@@ -187,31 +208,33 @@ describe('Calendar mutability and chaining', () => {
     const date = new Calendar();
     const after = Date.now();
     const epochMs = date.epoch().mul(1000).number();
-    expect(date.zone()).toBe('utc');
+    expect(date.zone()).toBe('local');
     expect(epochMs).toBeGreaterThanOrEqual(before);
     expect(epochMs).toBeLessThanOrEqual(after);
   });
 
   it('constructs from a Date instance', () => {
     const native = new Date(Date.UTC(2023, 0, 2, 3, 4, 5, 600));
-    const date = new Calendar(native, 'utc');
+    const date = new Calendar(native);
+    expect(date.zone()).toBe('local');
     expect(date.epoch().toString()).toBe(Decimal(native.getTime()).div(1000).toString());
   });
 
   it('constructs from Date via the static helper', () => {
     const native = new Date(Date.UTC(2024, 4, 6, 7, 8, 9, 10));
-    const date = Calendar.fromDate(native, 'utc');
+    const date = Calendar.fromDate(native);
+    expect(date.zone()).toBe('local');
     expect(date.epoch().toString()).toBe(Decimal(native.getTime()).div(1000).toString());
   });
 
   it('constructs from epoch without a zone argument', () => {
     const date = new Calendar(0);
-    expect(date.zone()).toBe('utc');
+    expect(date.zone()).toBe('local');
     expect(date.epoch().toString()).toBe('0');
   });
 
   it('returns new instances for immutable setters', () => {
-    const base = Calendar.fromEpoch(0, 'utc');
+    const base = Calendar.fromEpoch(0).utc();
     const updated = base.year(2000).month(2).day(3).hour(4).minutes(5).seconds('6.7');
     expect(base.year()).toBe(1970n);
     expect(updated.year()).toBe(2000n);
@@ -223,7 +246,7 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('mutates only with $-suffixed setters', () => {
-    const date = Calendar.fromEpoch(0, 'utc');
+    const date = Calendar.fromEpoch(0).utc();
     date.year$(1999).month$(12).day$(31).hour$(23).minutes$(59).seconds$('59.5');
     expect(date.year()).toBe(1999n);
     expect(date.month()).toBe(12n);
@@ -234,7 +257,7 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('supports zone helpers and mutating variants', () => {
-    const base = Calendar.fromEpoch(0, 'utc');
+    const base = Calendar.fromEpoch(0).utc();
     const local = base.local();
     expect(base.zone()).toBe('utc');
     expect(local.zone()).toBe('local');
@@ -247,7 +270,7 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('supports epoch setters and clone', () => {
-    const base = Calendar.fromEpoch(0, 'utc');
+    const base = Calendar.fromEpoch(0).utc();
     const updated = base.epoch('123.45');
     expect(base.epoch().toString()).toBe('0');
     expect(updated.epoch().toString()).toBe('123.45');
@@ -260,7 +283,7 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('updates the zone without mutating the original instance', () => {
-    const base = Calendar.fromEpoch(0, 'utc');
+    const base = Calendar.fromEpoch(0).utc();
     const zoned = base.zone('local');
     expect(base.zone()).toBe('utc');
     expect(zoned.zone()).toBe('local');
@@ -268,7 +291,13 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('accepts calendar inputs via constructor overload', () => {
-    const date = new Calendar(2020, 2, 3, 4, 5, '6.75', 'utc');
+    const date = new Calendar(2020, 2, 3, 4, 5, '6.75');
+    expect(date.zone()).toBe('local');
+    expect(date.epoch().toString()).toBe(
+      Decimal(new Date(2020, 1, 3, 4, 5, 6, 750).getTime())
+        .div(1000)
+        .toString(),
+    );
     expect(date.year()).toBe(2020n);
     expect(date.month()).toBe(2n);
     expect(date.day()).toBe(3n);
@@ -277,9 +306,12 @@ describe('Calendar mutability and chaining', () => {
     expect(date.seconds().toString()).toBe('6.75');
   });
 
-  it('defaults to utc when given an empty zone string', () => {
-    const date = new Calendar(0, '');
-    expect(date.zone()).toBe('utc');
+  it('constructs from epoch with local display and preserves arbitrary precision', () => {
+    const date = Calendar.fromEpoch('1788228184.123456789');
+    expect(date.zone()).toBe('local');
+    expect(date.epoch().toString()).toBe('1788228184.123456789');
+    expect(date.utc().format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe('2026-09-01T02:03:04.123456789Z');
+    expect(date.zone()).toBe('local');
   });
 
   it('throws for non-integer calendar inputs', () => {
@@ -288,7 +320,7 @@ describe('Calendar mutability and chaining', () => {
   });
 
   it('accepts integer decimal-like calendar inputs', () => {
-    const date = Calendar.fromComponents({ year: '2000', month: '2', day: '3' }, 'utc');
+    const date = Calendar.fromComponents({ year: '2000', month: '2', day: '3', zone: 'utc' }).utc();
     expect(date.year()).toBe(2000n);
     expect(date.month()).toBe(2n);
     expect(date.day()).toBe(3n);
@@ -296,10 +328,80 @@ describe('Calendar mutability and chaining', () => {
 });
 
 describe('Calendar local conversion', () => {
+  it('interprets component input in local time by default', () => {
+    const input = { year: 2026, month: 9, day: 1, hour: 12, minutes: 34, seconds: '56.123456789' };
+    const date = Calendar.fromComponents(input);
+    const expected = Decimal(new Date(2026, 8, 1, 12, 34, 56).getTime())
+      .div(1000)
+      .add('0.123456789');
+    expect(date.zone()).toBe('local');
+    expect(date.epoch().toString()).toBe(expected.toString());
+    expect(date.format('IY-MM-DD[T]hh:mm:ss.S*')).toBe('2026-09-01T12:34:56.123456789');
+    expect(
+      Calendar.fromComponents({ ...input, zone: 'local' })
+        .epoch()
+        .toString(),
+    ).toBe(expected.toString());
+    expect(new Calendar(2026, 9, 1).epoch().toString()).toBe(
+      Decimal(new Date(2026, 8, 1).getTime())
+        .div(1000)
+        .toString(),
+    );
+  });
+
+  it.each(['utc', 'Asia/Tokyo', 'America/New_York'])('uses %s only to interpret components and strings', (zone) => {
+    const input = { year: 2026, month: 9, day: 1, hour: 12, minutes: 34, seconds: '56.123456789', zone };
+    const fromComponents = Calendar.fromComponents(input);
+    const parsed = Calendar.parse('2026-9-1T12:34:56.123456789', undefined, zone);
+    const expected = {
+      utc: '2026-09-01T12:34:56.123456789Z',
+      'Asia/Tokyo': '2026-09-01T03:34:56.123456789Z',
+      'America/New_York': '2026-09-01T16:34:56.123456789Z',
+    }[zone];
+    for (const date of [fromComponents, parsed]) {
+      expect(date.zone()).toBe('local');
+      expect(date.utc().format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe(expected);
+      expect(date.zone(zone).format('IY-MM-DD[T]hh:mm:ss.S*')).toBe('2026-09-01T12:34:56.123456789');
+      expect(date.zone(zone).epoch().toString()).toBe(date.epoch().toString());
+      expect(date.zone()).toBe('local');
+    }
+  });
+
+  it('preserves display zones through cloning, epoch changes and calendar operations', () => {
+    const date = Calendar.parse('2026-09-01T12:34:56.123456789Z').zone('Asia/Tokyo');
+    const results = [
+      date.clone(),
+      date.epoch('1788228184.123456789'),
+      date.year(2027),
+      date.month(10),
+      date.day(2),
+      date.hour(9),
+      date.minutes(15),
+      date.seconds('1.5'),
+      date.alignToDay(),
+      date.nextDay(),
+      date.alignToMonth(),
+      date.nextMonth(),
+      date.alignToYear(),
+      date.nextYear(),
+      date.alignToSecond(15),
+    ];
+    for (const result of results) {
+      expect(result).not.toBe(date);
+      expect(result.zone()).toBe('Asia/Tokyo');
+    }
+    expect(date.clone().epoch().toString()).toBe(date.epoch().toString());
+    expect(date.format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe('2026-09-01T21:34:56.123456789+09:00');
+    expect(date.alignToDay().utc().format('IY-MM-DD[T]hh:mm:ssZ')).toBe('2026-08-31T15:00:00Z');
+    expect(date.hour(9).utc().format('IY-MM-DD[T]hh:mm:ss.S*Z')).toBe('2026-09-01T00:34:56.123456789Z');
+    const mutable = date.clone();
+    expect(mutable.epoch$(0).year$(2026).alignToDay().zone()).toBe('Asia/Tokyo');
+  });
+
   it('matches local components from Date for a representable epoch', () => {
     const native = new Date(Date.UTC(2020, 0, 2, 3, 4, 5, 678));
     const epochSeconds = Decimal(native.getTime()).div(1000);
-    const date = Calendar.fromEpoch(epochSeconds, 'local');
+    const date = Calendar.fromEpoch(epochSeconds);
 
     expect(date.year()).toBe(BigInt(native.getFullYear()));
     expect(date.month()).toBe(BigInt(native.getMonth() + 1));
@@ -314,17 +416,14 @@ describe('Calendar local conversion', () => {
 
   it('converts local calendar back to epoch aligned with Date', () => {
     const native = new Date(Date.UTC(2022, 5, 15, 6, 7, 8, 900));
-    const date = Calendar.fromComponents(
-      {
-        year: BigInt(native.getFullYear()),
-        month: BigInt(native.getMonth() + 1),
-        day: BigInt(native.getDate()),
-        hour: BigInt(native.getHours()),
-        minutes: BigInt(native.getMinutes()),
-        seconds: Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).div(1000)),
-      },
-      'local',
-    );
+    const date = Calendar.fromComponents({
+      year: BigInt(native.getFullYear()),
+      month: BigInt(native.getMonth() + 1),
+      day: BigInt(native.getDate()),
+      hour: BigInt(native.getHours()),
+      minutes: BigInt(native.getMinutes()),
+      seconds: Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).div(1000)),
+    });
 
     const expected = Decimal(native.getTime()).div(1000).toString();
     expect(date.epoch().toString()).toBe(expected);
@@ -359,7 +458,7 @@ describe('Calendar time zone conversion', () => {
     const timeZone = 'America/New_York';
     const native = new Date(Date.UTC(2020, 5, 1, 12, 34, 56, 0));
     const epochSeconds = Decimal(native.getTime()).div(1000);
-    const date = Calendar.fromEpoch(epochSeconds, timeZone);
+    const date = Calendar.fromEpoch(epochSeconds).zone(timeZone);
     const expected = getTimeZoneParts(native, timeZone);
 
     expect(date.year()).toBe(expected.year);
@@ -379,7 +478,7 @@ describe('Calendar time zone conversion', () => {
 
   it('covers time zone parts mapping for another IANA zone', () => {
     const timeZone = 'Asia/Tokyo';
-    const date = Calendar.fromEpoch(0, timeZone);
+    const date = Calendar.fromEpoch(0).zone(timeZone);
     expect(date.zone()).toBe(timeZone);
     expect(date.year()).toBe(1970n);
   });
@@ -394,7 +493,7 @@ describe('Calendar time zone conversion', () => {
     } as unknown as typeof Intl.DateTimeFormat;
 
     try {
-      const date = Calendar.fromEpoch(0, 'Etc/MissingParts');
+      const date = Calendar.fromEpoch(0).zone('Etc/MissingParts');
       expect(date.year()).toBeDefined();
     } finally {
       Intl.DateTimeFormat = original;
@@ -411,7 +510,7 @@ describe('Calendar time zone conversion', () => {
     } as unknown as typeof Intl.DateTimeFormat;
 
     try {
-      const date = Calendar.fromEpoch(0, 'Etc/MissingYear');
+      const date = Calendar.fromEpoch(0).zone('Etc/MissingYear');
       expect(date.year()).toBeDefined();
     } finally {
       Intl.DateTimeFormat = original;
@@ -423,7 +522,7 @@ describe('Calendar time zone conversion', () => {
     const native = new Date(Date.UTC(2021, 10, 7, 5, 6, 7, 0));
     const expectedEpoch = Decimal(native.getTime()).div(1000);
     const parts = getTimeZoneParts(native, timeZone);
-    const date = Calendar.fromComponents(parts, timeZone);
+    const date = Calendar.fromComponents({ ...parts, zone: timeZone }).zone(timeZone);
 
     expect(date.epoch().toString()).toBe(expectedEpoch.toString());
   });
@@ -439,20 +538,24 @@ describe('Calendar time zone conversion', () => {
   ])('resolves gaps and overlaps in %s at %s', (zone, input, expected) => {
     const date = Calendar.parse(input, undefined, zone);
     expect(date.epoch().toString()).toBe(Decimal(Date.parse(expected)).div(1000).toString());
-    expect(date.zone()).toBe(zone);
+    expect(date.zone()).toBe('local');
+    const components = Calendar.parse(input, undefined, 'utc').utc().components();
+    const fromComponents = Calendar.fromComponents({ ...components, zone });
+    expect(fromComponents.epoch().toString()).toBe(date.epoch().toString());
+    expect(fromComponents.zone()).toBe('local');
   });
 });
 
 describe('Calendar parsing', () => {
   it('parses compact year+month formats and defaults day to 1', () => {
-    const date = Calendar.parse('202612', 'yyyyMM', 'utc');
+    const date = Calendar.parse('202612', 'yyyyMM', 'utc').utc();
     expect(date.year()).toBe(2026n);
     expect(date.month()).toBe(12n);
     expect(date.day()).toBe(1n);
   });
 
   it('chooses a valid month when compact formats are ambiguous', () => {
-    const date = Calendar.parse('20260117', 'yyyyMM', 'utc');
+    const date = Calendar.parse('20260117', 'yyyyMM', 'utc').utc();
     expect(date.year()).toBe(2026011n);
     expect(date.month()).toBe(7n);
     expect(date.day()).toBe(1n);
@@ -465,10 +568,15 @@ describe('Calendar parsing', () => {
 
 describe('Calendar alignment and stepping', () => {
   it('aligns to the same day when no step is provided', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 17n,
+      hour: 10n,
+      minutes: 30n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToDay();
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -476,10 +584,15 @@ describe('Calendar alignment and stepping', () => {
     expect(aligned.hour()).toBe(0n);
   });
   it('aligns to day boundaries with a step', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: '22.5' },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 17n,
+      hour: 10n,
+      minutes: 30n,
+      seconds: '22.5',
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToDay(5n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -490,10 +603,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next day boundary with a step', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: '22.5' },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 17n,
+      hour: 10n,
+      minutes: 30n,
+      seconds: '22.5',
+      zone: 'utc',
+    }).utc();
     const next = date.nextDay(5n);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -504,10 +622,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next stepped day from a list', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 10n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const next = date.nextDay([1n, 15n, 20n]);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -515,16 +638,29 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('handles duplicate entries when selecting the next stepped day', () => {
-    const date = Calendar.fromComponents({ year: 2020n, month: 5n, day: 9n, hour: 9n, minutes: 0n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 9n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const next = date.nextDay([10n, 10n, 20n]);
     expect(next.day()).toBe(10n);
   });
 
   it('aligns to the nearest stepped day from a list', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 17n, hour: 9n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 17n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToDay([1n, 10n, 20n]);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -533,19 +669,29 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('handles duplicate entries in stepped days', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 12n, hour: 9n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 12n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToDay([5n, 5n, 10n]);
     expect(aligned.day()).toBe(10n);
   });
 
   it('keeps the current day when no stepped day is before it', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 10n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToDay([20n, 30n]);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(5n);
@@ -553,10 +699,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the current day when nextDay is called without a step', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 10n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const next = date.nextDay();
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(5n);
@@ -575,10 +726,15 @@ describe('Calendar alignment and stepping', () => {
     };
 
     try {
-      const date = Calendar.fromComponents(
-        { year: 2020n, month: 5n, day: 10n, hour: 9n, minutes: 0n, seconds: 0 },
-        'utc',
-      );
+      const date = Calendar.fromComponents({
+        year: 2020n,
+        month: 5n,
+        day: 10n,
+        hour: 9n,
+        minutes: 0n,
+        seconds: 0,
+        zone: 'utc',
+      }).utc();
       date.alignToDay([1n, 2n]);
       date.nextDay([1n, 2n]);
     } finally {
@@ -587,10 +743,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('moves to the next month when no later stepped day exists', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 30n, hour: 9n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 30n,
+      hour: 9n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const next = date.nextDay([1n, 15n]);
     expect(next.year()).toBe(2020n);
     expect(next.month()).toBe(6n);
@@ -599,10 +760,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns and steps months', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 17n,
+      hour: 1n,
+      minutes: 2n,
+      seconds: 3,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToMonth(3n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(4n);
@@ -615,10 +781,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns and steps years', () => {
-    const date = Calendar.fromComponents(
-      { year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2025n,
+      month: 5n,
+      day: 17n,
+      hour: 1n,
+      minutes: 2n,
+      seconds: 3,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToYear(10n);
     expect(aligned.year()).toBe(2020n);
     expect(aligned.month()).toBe(1n);
@@ -631,14 +802,51 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('aligns years with era boundaries', () => {
-    const ad202 = Calendar.fromComponents({ year: 202n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad102 = Calendar.fromComponents({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad10 = Calendar.fromComponents({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc150 = Calendar.fromComponents(
-      { year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const ad202 = Calendar.fromComponents({
+      year: 202n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const ad102 = Calendar.fromComponents({
+      year: 102n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const ad10 = Calendar.fromComponents({
+      year: 10n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const bc50 = Calendar.fromComponents({
+      year: -49n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const bc150 = Calendar.fromComponents({
+      year: -149n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
 
     expect(ad202.alignToYear(100n, { era: true }).year()).toBe(200n);
     expect(ad102.alignToYear(100n, { era: true }).year()).toBe(100n);
@@ -648,14 +856,51 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('steps years with era boundaries', () => {
-    const ad202 = Calendar.fromComponents({ year: 202n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad102 = Calendar.fromComponents({ year: 102n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const ad10 = Calendar.fromComponents({ year: 10n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
-    const bc150 = Calendar.fromComponents(
-      { year: -149n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 },
-      'utc',
-    );
+    const ad202 = Calendar.fromComponents({
+      year: 202n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const ad102 = Calendar.fromComponents({
+      year: 102n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const ad10 = Calendar.fromComponents({
+      year: 10n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const bc50 = Calendar.fromComponents({
+      year: -49n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
+    const bc150 = Calendar.fromComponents({
+      year: -149n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
 
     expect(ad202.nextYear(100n, { era: true }).year()).toBe(300n);
     expect(ad102.nextYear(100n, { era: true }).year()).toBe(200n);
@@ -665,10 +910,15 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the current year when no step is provided', () => {
-    const date = Calendar.fromComponents(
-      { year: 2025n, month: 5n, day: 17n, hour: 1n, minutes: 2n, seconds: 3 },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2025n,
+      month: 5n,
+      day: 17n,
+      hour: 1n,
+      minutes: 2n,
+      seconds: 3,
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToYear();
     const next = date.nextYear();
     expect(aligned.year()).toBe(2025n);
@@ -676,21 +926,42 @@ describe('Calendar alignment and stepping', () => {
   });
 
   it('keeps the BC year when no next step exists', () => {
-    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc50 = Calendar.fromComponents({
+      year: -49n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     const aligned = bc50.alignToYear([], { era: true });
     expect(aligned.year()).toBe(-49n);
   });
 
   it('falls back to year 1 when no previous stepped BC entry exists', () => {
-    const bc50 = Calendar.fromComponents({ year: -49n, month: 6n, day: 1n, hour: 0n, minutes: 0n, seconds: 0 }, 'utc');
+    const bc50 = Calendar.fromComponents({
+      year: -49n,
+      month: 6n,
+      day: 1n,
+      hour: 0n,
+      minutes: 0n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     expect(bc50.nextYear([100n], { era: true }).year()).toBe(1n);
   });
 
   it('aligns to seconds within a day', () => {
-    const date = Calendar.fromComponents(
-      { year: 2020n, month: 5n, day: 17n, hour: 10n, minutes: 30n, seconds: '22.123' },
-      'utc',
-    );
+    const date = Calendar.fromComponents({
+      year: 2020n,
+      month: 5n,
+      day: 17n,
+      hour: 10n,
+      minutes: 30n,
+      seconds: '22.123',
+      zone: 'utc',
+    }).utc();
     const aligned = date.alignToSecond(15);
     expect(aligned.hour()).toBe(10n);
     expect(aligned.minutes()).toBe(30n);
@@ -700,7 +971,7 @@ describe('Calendar alignment and stepping', () => {
 
 describe('Calendar formatting', () => {
   it('formats fractional seconds with padding', () => {
-    const date = Calendar.fromEpoch('12.3456', 'utc');
+    const date = Calendar.fromEpoch('12.3456').utc();
     expect(date.format('YYYY-MM-DD hh:mm:ss.SSSSSS')).toBe('1970-01-01 00:00:12.345600');
     expect(date.format('YYYY-MM-DD hh:mm:ss.SSS')).toBe('1970-01-01 00:00:12.345');
     expect(date.format('YYYY-MM-DD hh:mm:ss.SS')).toBe('1970-01-01 00:00:12.34');
@@ -708,13 +979,13 @@ describe('Calendar formatting', () => {
   });
 
   it('formats seconds without a fraction', () => {
-    const date = Calendar.fromEpoch(12, 'utc');
+    const date = Calendar.fromEpoch(12).utc();
     expect(date.format('YYYY-MM-DD hh:mm:ss.SSS')).toBe('1970-01-01 00:00:12.000');
   });
 
   it('formats era markers for BC and AD years', () => {
-    const ad = Calendar.fromComponents({ year: 1n, month: 1n, day: 1n }, 'utc');
-    const bc = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n }, 'utc');
+    const ad = Calendar.fromComponents({ year: 1n, month: 1n, day: 1n, zone: 'utc' }).utc();
+    const bc = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n, zone: 'utc' }).utc();
     expect(ad.format('G')).toBe('1 AD');
     expect(ad.format('GGGG')).toBe('0001 AD');
     expect(bc.format('G')).toBe('BC 1');
@@ -722,13 +993,21 @@ describe('Calendar formatting', () => {
   });
 
   it('formats single-digit month and hour tokens without padding', () => {
-    const date = Calendar.fromComponents({ year: 2024n, month: 6n, day: 5n, hour: 3n, minutes: 4n, seconds: 0 }, 'utc');
+    const date = Calendar.fromComponents({
+      year: 2024n,
+      month: 6n,
+      day: 5n,
+      hour: 3n,
+      minutes: 4n,
+      seconds: 0,
+      zone: 'utc',
+    }).utc();
     expect(date.format('YYYY-M-DD h:mm')).toBe('2024-6-05 3:04');
   });
 
   it('formats negative years with padded year tokens', () => {
-    const bc1 = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n }, 'utc');
-    const bc2 = Calendar.fromComponents({ year: -1n, month: 1n, day: 1n }, 'utc');
+    const bc1 = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n, zone: 'utc' }).utc();
+    const bc2 = Calendar.fromComponents({ year: -1n, month: 1n, day: 1n, zone: 'utc' }).utc();
     expect(bc1.format('YYYY-MM-DD')).toBe('0000-01-01');
     expect(bc1.format('y-MM-DD')).toBe('0-01-01');
     expect(bc2.format('YYYY-MM-DD')).toBe('-0001-01-01');
@@ -736,8 +1015,8 @@ describe('Calendar formatting', () => {
   });
 
   it('formats lowercase era tokens without AD suffix', () => {
-    const ad = Calendar.fromComponents({ year: 12n, month: 1n, day: 1n }, 'utc');
-    const bc = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n }, 'utc');
+    const ad = Calendar.fromComponents({ year: 12n, month: 1n, day: 1n, zone: 'utc' }).utc();
+    const bc = Calendar.fromComponents({ year: 0n, month: 1n, day: 1n, zone: 'utc' }).utc();
     expect(ad.format('g')).toBe('12');
     expect(ad.format('gggg')).toBe('0012');
     expect(bc.format('g')).toBe('BC 1');
@@ -745,8 +1024,8 @@ describe('Calendar formatting', () => {
   });
 
   it('formats lowercase padded year tokens', () => {
-    const ad = Calendar.fromComponents({ year: 42n, month: 1n, day: 1n }, 'utc');
-    const bc = Calendar.fromComponents({ year: -1n, month: 1n, day: 1n }, 'utc');
+    const ad = Calendar.fromComponents({ year: 42n, month: 1n, day: 1n, zone: 'utc' }).utc();
+    const bc = Calendar.fromComponents({ year: -1n, month: 1n, day: 1n, zone: 'utc' }).utc();
     expect(ad.format('yyyy-MM-DD')).toBe('0042-01-01');
     expect(bc.format('yyyy-MM-DD')).toBe('-0001-01-01');
   });
@@ -754,7 +1033,7 @@ describe('Calendar formatting', () => {
 
 describe('Calendar parsing', () => {
   it('parses a full datetime with fractional seconds', () => {
-    const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc');
+    const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc').utc();
     expect(date.year()).toBe(2024n);
     expect(date.month()).toBe(6n);
     expect(date.day()).toBe(15n);
@@ -764,21 +1043,21 @@ describe('Calendar parsing', () => {
   });
 
   it('parses a date-only format and defaults time to zero', () => {
-    const date = Calendar.parse('2024-06-15', 'YYYY-MM-DD', 'utc');
+    const date = Calendar.parse('2024-06-15', 'YYYY-MM-DD', 'utc').utc();
     expect(date.hour()).toBe(0n);
     expect(date.minutes()).toBe(0n);
     expect(date.seconds().toString()).toBe('0');
   });
 
   it('parses era-aware formats', () => {
-    const bc = Calendar.parse('BC 0001-01-01', 'GGGG-MM-DD', 'utc');
-    const ad = Calendar.parse('1 AD-01-01', 'G-MM-DD', 'utc');
+    const bc = Calendar.parse('BC 0001-01-01', 'GGGG-MM-DD', 'utc').utc();
+    const ad = Calendar.parse('1 AD-01-01', 'G-MM-DD', 'utc').utc();
     expect(bc.year()).toBe(0n);
     expect(ad.year()).toBe(1n);
   });
 
   it('parses era tokens without explicit era suffixes', () => {
-    const date = Calendar.parse('2024-06-15', 'gggg-MM-DD', 'utc');
+    const date = Calendar.parse('2024-06-15', 'gggg-MM-DD', 'utc').utc();
     expect(date.year()).toBe(2024n);
   });
 
@@ -790,8 +1069,8 @@ describe('Calendar parsing', () => {
   });
 
   it('parses era tokens without spaces', () => {
-    const bc = Calendar.parse('BC0001-01-01', 'GGGG-MM-DD', 'utc');
-    const ad = Calendar.parse('0001AD-01-01', 'GGGG-MM-DD', 'utc');
+    const bc = Calendar.parse('BC0001-01-01', 'GGGG-MM-DD', 'utc').utc();
+    const ad = Calendar.parse('0001AD-01-01', 'GGGG-MM-DD', 'utc').utc();
     expect(bc.year()).toBe(0n);
     expect(ad.year()).toBe(1n);
   });
@@ -815,28 +1094,28 @@ describe('Calendar parsing', () => {
   });
 
   it('parses single-digit month and hour tokens with one or two digits', () => {
-    const compact = Calendar.parse('2024-6-05 3:04', 'YYYY-M-DD h:mm', 'utc');
+    const compact = Calendar.parse('2024-6-05 3:04', 'YYYY-M-DD h:mm', 'utc').utc();
     expect(compact.month()).toBe(6n);
     expect(compact.hour()).toBe(3n);
 
-    const padded = Calendar.parse('2024-06-05 03:04', 'YYYY-M-DD h:mm', 'utc');
+    const padded = Calendar.parse('2024-06-05 03:04', 'YYYY-M-DD h:mm', 'utc').utc();
     expect(padded.month()).toBe(6n);
     expect(padded.hour()).toBe(3n);
   });
 
   it('parses negative years for padded and variable year tokens', () => {
-    const bc1 = Calendar.parse('0000-01-01', 'YYYY-MM-DD', 'utc');
-    const bc2 = Calendar.parse('-0001-01-01', 'YYYY-MM-DD', 'utc');
-    const bc2Short = Calendar.parse('-1-01-01', 'y-MM-DD', 'utc');
+    const bc1 = Calendar.parse('0000-01-01', 'YYYY-MM-DD', 'utc').utc();
+    const bc2 = Calendar.parse('-0001-01-01', 'YYYY-MM-DD', 'utc').utc();
+    const bc2Short = Calendar.parse('-1-01-01', 'y-MM-DD', 'utc').utc();
     expect(bc1.year()).toBe(0n);
     expect(bc2.year()).toBe(-1n);
     expect(bc2Short.year()).toBe(-1n);
   });
 
   it('round-trips era tokens with year tokens and components', () => {
-    const bc1 = Calendar.parse('BC 0001-01-01', 'GGGG-MM-DD', 'utc');
-    const bc2 = Calendar.parse('BC 0002-01-01', 'GGGG-MM-DD', 'utc');
-    const ad1 = Calendar.parse('0001 AD-01-01', 'GGGG-MM-DD', 'utc');
+    const bc1 = Calendar.parse('BC 0001-01-01', 'GGGG-MM-DD', 'utc').utc();
+    const bc2 = Calendar.parse('BC 0002-01-01', 'GGGG-MM-DD', 'utc').utc();
+    const ad1 = Calendar.parse('0001 AD-01-01', 'GGGG-MM-DD', 'utc').utc();
 
     expect(bc1.format('YYYY-MM-DD')).toBe('0000-01-01');
     expect(bc2.format('YYYY-MM-DD')).toBe('-0001-01-01');
@@ -848,7 +1127,7 @@ describe('Calendar parsing', () => {
   });
 
   it('accepts duplicate tokens when the values are identical', () => {
-    const date = Calendar.parse('2024-02-02', 'YYYY-MM-MM', 'utc');
+    const date = Calendar.parse('2024-02-02', 'YYYY-MM-MM', 'utc').utc();
     expect(date.year()).toBe(2024n);
     expect(date.month()).toBe(2n);
   });
@@ -878,7 +1157,7 @@ describe('Calendar parsing', () => {
   });
 
   it('accepts years shorter than the output width', () => {
-    expect(Calendar.parse('20-01', 'YYYY-MM', 'utc').format('YYYY-MM')).toBe('0020-01');
+    expect(Calendar.parse('20-01', 'YYYY-MM', 'utc').utc().format('YYYY-MM')).toBe('0020-01');
   });
 
   it('throws when remaining minimum length exceeds the input', () => {
@@ -952,19 +1231,19 @@ describe('Calendar parsing', () => {
 
 describe('Calendar weekday', () => {
   it('returns weekday index for the UNIX epoch start', () => {
-    const date = Calendar.fromEpoch(0, 'utc');
+    const date = Calendar.fromEpoch(0).utc();
     expect(date.weekday()).toBe(4);
   });
 
   it('returns weekday index for nearby UTC dates', () => {
-    const sunday = Calendar.fromComponents({ year: 1970n, month: 1n, day: 4n }, 'utc');
-    const wednesday = Calendar.fromComponents({ year: 1969n, month: 12n, day: 31n }, 'utc');
+    const sunday = Calendar.fromComponents({ year: 1970n, month: 1n, day: 4n, zone: 'utc' }).utc();
+    const wednesday = Calendar.fromComponents({ year: 1969n, month: 12n, day: 31n, zone: 'utc' }).utc();
     expect(sunday.weekday()).toBe(0);
     expect(wednesday.weekday()).toBe(3);
   });
 
   it('includes weekday in components()', () => {
-    const date = Calendar.fromComponents({ year: 1970n, month: 1n, day: 1n }, 'utc');
+    const date = Calendar.fromComponents({ year: 1970n, month: 1n, day: 1n, zone: 'utc' }).utc();
     expect(date.components().weekday).toBe(4);
   });
 });

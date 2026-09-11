@@ -13,15 +13,15 @@ npm install @kikuchan/calendar @kikuchan/decimal
 ```ts
 import { Calendar } from '@kikuchan/calendar';
 
-// Current time in UTC
+// Current time, displayed in the local time zone
 const now = new Calendar();
 
-// From calendar components
-const date = new Calendar(2024, 6, 15, 12, 30, '45.123', 'utc');
+// From local calendar components
+const date = new Calendar(2024, 6, 15, 12, 30, '45.123');
 console.log(date.format('YYYY-MM-DD hh:mm:ss.SSS')); // "2024-06-15 12:30:45.123"
 
 // From epoch seconds (with arbitrary precision)
-const epoch = Calendar.fromEpoch('1718451045.123456789', 'utc');
+const epoch = Calendar.fromEpoch('1718451045.123456789').utc();
 console.log(epoch.seconds().toString()); // "45.123456789"
 ```
 
@@ -30,38 +30,60 @@ console.log(epoch.seconds().toString()); // "45.123456789"
 ### Constructors
 
 ```ts
-// Current time in UTC
+// Current time, displayed in the local time zone
 new Calendar();
 
-// From epoch seconds with optional time zone
+// From epoch seconds; change the display zone separately
 new Calendar(epochSeconds);
-new Calendar(epochSeconds, 'America/New_York');
+new Calendar(epochSeconds).zone('America/New_York');
 
-// From calendar components (year, month, day, hour?, minutes?, seconds?, zone?)
+// From local calendar components (year, month, day, hour?, minutes?, seconds?)
 new Calendar(2024, 6, 15);
-new Calendar(2024, 6, 15, 12, 30, '45.5', 'utc');
+new Calendar(2024, 6, 15, 12, 30, '45.5');
 
 // From native Date
-new Calendar(new Date(), 'local');
+new Calendar(new Date());
 ```
 
 ### Static Methods
 
 ```ts
-Calendar.fromEpoch(epochSeconds, zone?)       // from Unix epoch seconds
-Calendar.fromDate(date, zone?)                // from native Date
-Calendar.fromComponents(components, zone?)    // from object { year, month, day, ... }
-Calendar.parse(value, format?, zone?)         // from a formatted string; ISO-style input by default, zone defaults to local
+Calendar.fromEpoch(epochSeconds)              // from Unix epoch seconds
+Calendar.fromDate(date)                       // from native Date
+Calendar.fromComponents(components)           // from { year, month, day, ..., zone? }; zone describes the input
+Calendar.parse(value, format?, inputZone?)    // ISO-style input by default; inputZone defaults to local
 ```
+
+All constructors and factories create instances with a `local` display/operation zone. Epoch seconds and native
+`Date` objects already identify an instant, so their factories do not take a zone argument.
+
+For components in another zone, include `zone` in the input object. This determines the instant, not the display zone:
+
+```ts
+const date = Calendar.fromComponents({
+  year: 2026,
+  month: 9,
+  day: 1,
+  hour: 12,
+  zone: 'Asia/Tokyo',
+});
+
+date.zone();                                      // 'local'
+date.utc().format('IY-MM-DD[T]hh:mm:ssZ');          // '2026-09-01T03:00:00Z'
+date.zone('Asia/Tokyo').format('hh:mm');            // '12:00'
+```
+
+Without an input `zone`, components are interpreted in local time. Calling `.utc()` afterward changes the display,
+not the original interpretation. To interpret components as UTC, use `{ ..., zone: 'utc' }`.
 
 ## Time Zones
 
 Supports UTC, local system time, and IANA time zone names:
 
 ```ts
-const date = Calendar.fromEpoch(0, 'utc');
+const date = Calendar.fromEpoch(0);
 
-date.zone();                    // 'utc'
+date.zone();                    // 'local'
 date.zone('America/New_York');  // new instance with different zone
 date.utc();                     // shorthand for zone('utc')
 date.local();                   // shorthand for zone('local')
@@ -72,7 +94,10 @@ date.utc$();
 date.local$();
 ```
 
-`Calendar.parse()` defaults to `local`. Other constructors and factories default to `utc`.
+Internally, every instance stores arbitrary-precision Unix epoch seconds. `.zone()`, `.utc()` and `.local()` preserve
+that instant and select the basis for component access, formatting and calendar operations such as `alignToDay()`.
+Cloning, setters and alignment operations preserve the instance's selected zone.
+
 When interpreting wall-clock components in a local or IANA zone, an overlapping time selects the earlier instant,
 and a nonexistent time moves forward by the offset gap. This matches native `Date` disambiguation, including
 transitions that are not one hour long.
@@ -84,7 +109,7 @@ transitions that are not one hour long.
 All getters return the value; setters return a new instance (immutable):
 
 ```ts
-const date = Calendar.fromComponents({ year: 2024n, month: 6n, day: 15n }, 'utc');
+const date = Calendar.fromComponents({ year: 2024n, month: 6n, day: 15n, zone: 'utc' }).utc();
 
 date.year();       // 2024n (bigint)
 date.month();      // 6n
@@ -104,7 +129,7 @@ date.month(12).day(31);  // chaining works
 Methods ending with `$` modify the instance in place:
 
 ```ts
-const date = Calendar.fromEpoch(0, 'utc');
+const date = Calendar.fromEpoch(0).utc();
 date.year$(2000).month$(6).day$(15);
 date.hour$(12).minutes$(30).seconds$('45.5');
 ```
@@ -112,7 +137,7 @@ date.hour$(12).minutes$(30).seconds$('45.5');
 ### Epoch Access
 
 ```ts
-const date = Calendar.fromEpoch('1718451045.123', 'utc');
+const date = Calendar.fromEpoch('1718451045.123');
 
 date.epoch();              // Decimal('1718451045.123')
 date.epoch('0');           // new instance at epoch 0
@@ -122,7 +147,7 @@ date.epoch$('123.456');    // mutate in place
 ### Components
 
 ```ts
-const date = new Calendar(2024, 6, 15, 12, 30, '45.5', 'utc');
+const date = new Calendar(2024, 6, 15, 12, 30, '45.5');
 date.components();
 // {
 //   year: 2024n,
@@ -148,10 +173,9 @@ Align dates to boundaries or step to the next boundary. Time components are rese
 ### Day Alignment
 
 ```ts
-const date = Calendar.fromComponents(
-  { year: 2024n, month: 6n, day: 17n, hour: 10n, minutes: 30n, seconds: 0 },
-  'utc'
-);
+const date = Calendar.fromComponents({
+  year: 2024n, month: 6n, day: 17n, hour: 10n, minutes: 30n, seconds: 0, zone: 'utc',
+}).utc();
 
 date.alignToDay();        // same day at 00:00:00
 date.alignToDay(5);       // align to nearest 5th (day 15)
@@ -196,7 +220,7 @@ date.alignToSecond(300);
 ## Formatting
 
 ```ts
-const date = Calendar.fromEpoch('12.3456', 'utc');
+const date = Calendar.fromEpoch('12.3456').utc();
 
 date.format('YYYY-MM-DD');                  // "1970-01-01"
 date.format('YYYY-MM-DD hh:mm:ss');         // "1970-01-01 00:00:12"
@@ -208,7 +232,7 @@ date.format('IY-MM-DD[T]hh:mm:ss.S*Z');     // "1970-01-01T00:00:12.3456Z"
 ## Parsing
 
 ```ts
-const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc');
+const date = Calendar.parse('2024-06-15 12:30:45.123', 'YYYY-MM-DD hh:mm:ss.SSS', 'utc').utc();
 date.year(); // 2024n
 
 // Omitted format: try the supported ISO-style formats in order.
@@ -217,7 +241,7 @@ Calendar.parse('2026-09-01T12:34');
 Calendar.parse('2026-09-01T12:34:56.123456789+09:00');
 
 // Permissive input, canonical output, with an explicit display zone.
-Calendar.parse('+2026-9-1T2:3:4.123456789+0000', undefined, 'utc')
+Calendar.parse('+2026-9-1T2:3:4.123456789+0000').utc()
   .format('IY-MM-DD[T]hh:mm:ss.S*Z');
 // "2026-09-01T02:03:04.123456789Z"
 ```
@@ -248,15 +272,16 @@ the default formats.
 
 #### Parsing time zones
 
-- Without an input offset, both date-only and datetime strings are interpreted in `zone`, which defaults to `local`.
-- With an input offset, that offset determines the instant; `zone` selects the returned instance's display zone.
+- Without an input offset, both date-only and datetime strings are interpreted in `inputZone`, which defaults to `local`.
+- With an input offset, that offset determines the instant and `inputZone` is unused.
+- The returned instance always has a `local` display/operation zone. Use `.zone(...)` or `.utc()` to change it.
 - Unlike `Date.parse()`, date-only strings also use the requested zone (local by default), rather than implicitly using UTC.
-- Use an explicit offset or `zone: 'utc'` (the third positional argument) when parsing must be independent of the host zone.
+- Use an explicit offset or `'utc'` as the third argument when the parsed instant must be independent of the host zone.
 
 ```ts
 Calendar.parse('2026-09-01T12:00:00');                  // local noon
-Calendar.parse('2026-09-01', undefined, 'utc');         // UTC midnight
-Calendar.parse('2026-09-01T12:00:00+09:00', undefined, 'utc')
+Calendar.parse('2026-09-01', undefined, 'utc');         // UTC midnight, displayed in local time
+Calendar.parse('2026-09-01T12:00:00+09:00').utc()
   .format('IY-MM-DD[T]hh:mm:ssZ');
 // "2026-09-01T03:00:00Z"
 ```
@@ -304,7 +329,13 @@ date.format(String.raw`[Year:] YYYY \[MM\]`);
 
 #### Compatibility changes
 
-- `parse()` now defaults to `local`; pass `'utc'` explicitly to retain UTC interpretation and display.
+- All constructors and factories now return a `local` display/operation zone. Use `.utc()` or `.zone(...)` to select another.
+- Constructors, `fromEpoch()` and `fromDate()` no longer accept a zone argument. Positional component constructors
+  interpret their input as local time; use `fromComponents({ ..., zone })` for components in another zone.
+- `fromComponents()` takes its input zone inside the object, not as a second argument. To retain UTC interpretation
+  and display, use `Calendar.fromComponents({ ..., zone: 'utc' }).utc()`.
+- The third argument to `parse()` is only the input zone for offset-free strings. To retain UTC interpretation and
+  display, use `Calendar.parse(value, format, 'utc').utc()`.
 - `Z`, `IY`, brackets and backslashes now have format syntax meaning; quote or escape them when literal text is intended.
 - Repeated year, era-year and fraction letters form a single token of arbitrary width.
 - Short and explicitly positive years are accepted, and unmarked era year zero is rejected.

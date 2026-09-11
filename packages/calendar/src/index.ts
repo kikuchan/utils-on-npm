@@ -9,6 +9,7 @@ type CalendarInput = {
   hour?: bigint | number | DecimalLike;
   minutes?: bigint | number | DecimalLike;
   seconds?: DecimalLike;
+  zone?: Zone;
 };
 
 type CalendarComponents = {
@@ -252,7 +253,8 @@ function offsetMinutesForEpoch(epochSeconds: Decimal, zone: Zone): number {
     .mul(SECONDS_PER_DAY)
     .add(hour * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE + seconds)
     .add(Decimal(date.getUTCMilliseconds()).div(1000));
-  const utcSeconds = clamped.div(1000);
+  // Compare both sides at the native Date's precision, not the original fractional instant.
+  const utcSeconds = Decimal(date.getTime()).div(1000);
   const offsetMinutes = utcSeconds.sub(localSeconds).div(60).trunc(0, true);
   return offsetMinutes.number();
 }
@@ -319,11 +321,6 @@ function normalizeCalendarInput(input: CalendarInput): CalendarComponents {
     seconds: input.seconds == null ? Decimal(0) : Decimal(input.seconds),
     weekday: civilFromDays(daysFromCivil(year, month, day)).weekday,
   };
-}
-
-function ensureZone(value: string | undefined): Zone {
-  if (value) return value;
-  return 'utc';
 }
 
 const FORMAT_TOKENS: FormatToken[] = [
@@ -765,10 +762,10 @@ function parseByFormat(value: string, format: string): ParsedDateTime {
 
 export class Calendar {
   #epoch: Decimal;
-  #zone: Zone;
+  #zone: Zone = 'local';
 
   constructor();
-  constructor(dateLike: DecimalLike | Date, zone?: Zone);
+  constructor(dateLike: DecimalLike | Date);
   constructor(
     year: bigint | number,
     month: bigint | number,
@@ -776,19 +773,12 @@ export class Calendar {
     hour?: bigint | number,
     minutes?: bigint | number,
     seconds?: DecimalLike,
-    zone?: Zone,
   );
-  constructor(...args: (bigint | number | DecimalLike | Date | Zone | undefined)[]) {
+  constructor(...args: (bigint | number | DecimalLike | Date | undefined)[]) {
     if (args.length === 0) {
       this.#epoch = Decimal(Date.now()).div(1000);
-      this.#zone = 'utc';
       return;
     }
-
-    const zone =
-      (args.length === 7 || args.length === 2) && typeof args[args.length - 1] === 'string'
-        ? ensureZone(args[args.length - 1] as string)
-        : 'utc';
 
     if (args.length >= 3 && typeof args[0] !== 'object') {
       const [year, month, day, hour, minutes, seconds] = args as [
@@ -807,12 +797,10 @@ export class Calendar {
         minutes,
         seconds,
       });
-      this.#epoch = calendarToEpoch(components, zone);
-      this.#zone = zone;
+      this.#epoch = calendarToEpoch(components, 'local');
       return;
     }
 
-    this.#zone = zone;
     if (args[0] instanceof Date) {
       this.#epoch = Decimal(args[0].getTime()).div(1000);
       return;
@@ -822,21 +810,21 @@ export class Calendar {
     return;
   }
 
-  static fromEpoch(epochSeconds: DecimalLike, zone: Zone = 'utc') {
-    return new Calendar(epochSeconds, zone);
+  static fromEpoch(epochSeconds: DecimalLike) {
+    return new Calendar(epochSeconds);
   }
 
-  static fromDate(date: Date, zone: Zone = 'utc') {
-    return new Calendar(date, zone);
+  static fromDate(date: Date) {
+    return new Calendar(date);
   }
 
-  static fromComponents(input: CalendarInput, zone: Zone = 'utc') {
+  static fromComponents(input: CalendarInput) {
     const components = normalizeCalendarInput(input);
-    const epoch = calendarToEpoch(components, zone);
-    return new Calendar(epoch, zone);
+    const epoch = calendarToEpoch(components, input.zone ?? 'local');
+    return new Calendar(epoch);
   }
 
-  static parse(value: string, format?: string, zone: Zone = 'local') {
+  static parse(value: string, format?: string, inputZone: Zone = 'local') {
     const formats =
       format === undefined
         ? [
@@ -857,22 +845,24 @@ export class Calendar {
         if (!(error instanceof ParseError) || format !== undefined) throw error;
         continue;
       }
-      if (parsed.offsetSeconds === undefined) return Calendar.fromComponents(parsed.components, zone);
+      if (parsed.offsetSeconds === undefined) {
+        return Calendar.fromComponents({ ...parsed.components, zone: inputZone });
+      }
       const epoch = calendarToEpoch(normalizeCalendarInput(parsed.components), 'utc').sub(parsed.offsetSeconds);
-      return Calendar.fromEpoch(epoch, zone);
+      return Calendar.fromEpoch(epoch);
     }
     throw new ParseError('value does not match a supported ISO date format');
   }
 
   clone() {
-    return new Calendar(this.#epoch, this.#zone);
+    return new Calendar(this.#epoch).zone$(this.#zone);
   }
 
   zone(): Zone;
   zone(value: Zone): Calendar;
   zone(value?: Zone) {
     if (value === undefined) return this.#zone;
-    return new Calendar(this.#epoch, value);
+    return new Calendar(this.#epoch).zone$(value);
   }
 
   zone$(value: Zone) {
@@ -900,7 +890,7 @@ export class Calendar {
   epoch(value: DecimalLike): Calendar;
   epoch(value?: DecimalLike) {
     if (value === undefined) return this.#epoch.clone();
-    return new Calendar(value, this.#zone);
+    return new Calendar(value).zone$(this.#zone);
   }
 
   epoch$(value: DecimalLike) {
@@ -928,7 +918,7 @@ export class Calendar {
       this.#epoch = epoch;
       return this;
     }
-    return new Calendar(epoch, this.#zone);
+    return new Calendar(epoch).zone$(this.#zone);
   }
 
   #withAlignedDate(adjuster: (current: CalendarComponents) => { year: bigint; month: bigint; day: bigint }) {
@@ -941,7 +931,7 @@ export class Calendar {
       weekday: current.weekday,
     };
     const epoch = calendarToEpoch(next, this.#zone);
-    return new Calendar(epoch, this.#zone);
+    return new Calendar(epoch).zone$(this.#zone);
   }
 
   year(): bigint;
@@ -1060,7 +1050,7 @@ export class Calendar {
   alignToSecond(step: DecimalLike) {
     const dayStart = this.alignToDay(1n);
     const aligned = this.#epoch.sub(dayStart.epoch()).floorBy(Decimal(step)).add(dayStart.epoch());
-    return new Calendar(aligned, this.#zone);
+    return new Calendar(aligned).zone$(this.#zone);
   }
 
   format(fmt: string) {
