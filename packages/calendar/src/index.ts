@@ -252,10 +252,10 @@ function offsetMinutesForEpoch(epochSeconds: Decimal, zone: Zone): number {
   const localSeconds = Decimal(daysFromCivil(year, month, day))
     .mul(SECONDS_PER_DAY)
     .add(hour * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE + seconds)
-    .add(Decimal(date.getUTCMilliseconds()).div(1000));
+    .add(Decimal(date.getUTCMilliseconds()).divExact(1000));
   // Compare both sides at the native Date's precision, not the original fractional instant.
-  const utcSeconds = Decimal(date.getTime()).div(1000);
-  const offsetMinutes = utcSeconds.sub(localSeconds).div(60).trunc(0, true);
+  const utcSeconds = Decimal(date.getTime()).divExact(1000);
+  const offsetMinutes = utcSeconds.sub(localSeconds).divTrunc(60);
   return offsetMinutes.number();
 }
 
@@ -263,7 +263,7 @@ function epochToComponents(epochSeconds: Decimal, zone: Zone): CalendarComponent
   const offsetMinutes = offsetMinutesForEpoch(epochSeconds, zone);
   const adjusted =
     offsetMinutes === 0 ? epochSeconds : epochSeconds.sub(Decimal(offsetMinutes).mul(SECONDS_PER_MINUTE));
-  const day = divFloor(adjusted.floor(0).integer(), SECONDS_PER_DAY);
+  const day = adjusted.divFloor(SECONDS_PER_DAY).integer();
   const secondsOfDay = adjusted.sub(Decimal(day * SECONDS_PER_DAY));
   const timeInteger = secondsOfDay.floor(0).integer();
   const fraction = secondsOfDay.sub(Decimal(timeInteger));
@@ -776,7 +776,7 @@ export class Calendar {
   );
   constructor(...args: (bigint | number | DecimalLike | Date | undefined)[]) {
     if (args.length === 0) {
-      this.#epoch = Decimal(Date.now()).div(1000);
+      this.#epoch = Decimal(Date.now()).divExact(1000);
       return;
     }
 
@@ -802,7 +802,7 @@ export class Calendar {
     }
 
     if (args[0] instanceof Date) {
-      this.#epoch = Decimal(args[0].getTime()).div(1000);
+      this.#epoch = Decimal(args[0].getTime()).divExact(1000);
       return;
     }
     // TODO: parse string date representation

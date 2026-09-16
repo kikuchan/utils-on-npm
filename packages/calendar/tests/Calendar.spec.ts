@@ -150,18 +150,18 @@ describe('Calendar ISO parsing and offsets', () => {
     for (const [input, native] of inputs) {
       const date = Calendar.parse(input);
       expect(date.zone()).toBe('local');
-      expect(date.epoch().toString()).toBe(Decimal(native.getTime()).div(1000).toString());
+      expect(date.epoch().toString()).toBe(Decimal(native.getTime()).divExact(1000).toString());
     }
     expect(Calendar.parse('2026/9/1', 'Y/M/DD').epoch().toString()).toBe(
       Decimal(new Date(2026, 8, 1).getTime())
-        .div(1000)
+        .divExact(1000)
         .toString(),
     );
     const explicit = Calendar.parse('2026-09-01T00:00:00Z');
     expect(explicit.zone()).toBe('local');
     expect(explicit.epoch().toString()).toBe(
       Decimal(Date.UTC(2026, 8, 1))
-        .div(1000)
+        .divExact(1000)
         .toString(),
     );
   });
@@ -191,6 +191,18 @@ describe('Calendar UTC conversion', () => {
     expect(date.epoch().toString()).toBe('946684800');
   });
 
+  it.each([
+    ['-86400.00000000000000000001', 30n],
+    ['-0.00000000000000000001', 31n],
+    ['86399.99999999999999999999', 1n],
+  ])('keeps epoch %s on the correct side of midnight', (epoch, day) => {
+    const date = Calendar.fromEpoch(Decimal(epoch)).utc();
+    expect(date.day()).toBe(day);
+    expect(date.hour()).toBe(23n);
+    expect(date.minutes()).toBe(59n);
+    expect(date.seconds().eq('59.99999999999999999999')).toBe(true);
+  });
+
   it('handles negative epoch with fractional seconds', () => {
     const date = Calendar.fromEpoch(Decimal('-1.5')).utc();
     expect(date.year()).toBe(1969n);
@@ -217,14 +229,14 @@ describe('Calendar mutability and chaining', () => {
     const native = new Date(Date.UTC(2023, 0, 2, 3, 4, 5, 600));
     const date = new Calendar(native);
     expect(date.zone()).toBe('local');
-    expect(date.epoch().toString()).toBe(Decimal(native.getTime()).div(1000).toString());
+    expect(date.epoch().toString()).toBe(Decimal(native.getTime()).divExact(1000).toString());
   });
 
   it('constructs from Date via the static helper', () => {
     const native = new Date(Date.UTC(2024, 4, 6, 7, 8, 9, 10));
     const date = Calendar.fromDate(native);
     expect(date.zone()).toBe('local');
-    expect(date.epoch().toString()).toBe(Decimal(native.getTime()).div(1000).toString());
+    expect(date.epoch().toString()).toBe(Decimal(native.getTime()).divExact(1000).toString());
   });
 
   it('constructs from epoch without a zone argument', () => {
@@ -295,7 +307,7 @@ describe('Calendar mutability and chaining', () => {
     expect(date.zone()).toBe('local');
     expect(date.epoch().toString()).toBe(
       Decimal(new Date(2020, 1, 3, 4, 5, 6, 750).getTime())
-        .div(1000)
+        .divExact(1000)
         .toString(),
     );
     expect(date.year()).toBe(2020n);
@@ -332,7 +344,7 @@ describe('Calendar local conversion', () => {
     const input = { year: 2026, month: 9, day: 1, hour: 12, minutes: 34, seconds: '56.123456789' };
     const date = Calendar.fromComponents(input);
     const expected = Decimal(new Date(2026, 8, 1, 12, 34, 56).getTime())
-      .div(1000)
+      .divExact(1000)
       .add('0.123456789');
     expect(date.zone()).toBe('local');
     expect(date.epoch().toString()).toBe(expected.toString());
@@ -344,7 +356,7 @@ describe('Calendar local conversion', () => {
     ).toBe(expected.toString());
     expect(new Calendar(2026, 9, 1).epoch().toString()).toBe(
       Decimal(new Date(2026, 8, 1).getTime())
-        .div(1000)
+        .divExact(1000)
         .toString(),
     );
   });
@@ -400,7 +412,7 @@ describe('Calendar local conversion', () => {
 
   it('matches local components from Date for a representable epoch', () => {
     const native = new Date(Date.UTC(2020, 0, 2, 3, 4, 5, 678));
-    const epochSeconds = Decimal(native.getTime()).div(1000);
+    const epochSeconds = Decimal(native.getTime()).divExact(1000);
     const date = Calendar.fromEpoch(epochSeconds);
 
     expect(date.year()).toBe(BigInt(native.getFullYear()));
@@ -409,7 +421,7 @@ describe('Calendar local conversion', () => {
     expect(date.hour()).toBe(BigInt(native.getHours()));
     expect(date.minutes()).toBe(BigInt(native.getMinutes()));
 
-    const expectedSeconds = Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).div(1000));
+    const expectedSeconds = Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).divExact(1000));
     expect(date.seconds().toString()).toBe(expectedSeconds.toString());
     expect(date.components().weekday).toBe(native.getDay());
   });
@@ -422,10 +434,10 @@ describe('Calendar local conversion', () => {
       day: BigInt(native.getDate()),
       hour: BigInt(native.getHours()),
       minutes: BigInt(native.getMinutes()),
-      seconds: Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).div(1000)),
+      seconds: Decimal(native.getSeconds()).add(Decimal(native.getMilliseconds()).divExact(1000)),
     });
 
-    const expected = Decimal(native.getTime()).div(1000).toString();
+    const expected = Decimal(native.getTime()).divExact(1000).toString();
     expect(date.epoch().toString()).toBe(expected);
   });
 });
@@ -457,7 +469,7 @@ describe('Calendar time zone conversion', () => {
   it('converts epoch to calendar for an IANA time zone', () => {
     const timeZone = 'America/New_York';
     const native = new Date(Date.UTC(2020, 5, 1, 12, 34, 56, 0));
-    const epochSeconds = Decimal(native.getTime()).div(1000);
+    const epochSeconds = Decimal(native.getTime()).divExact(1000);
     const date = Calendar.fromEpoch(epochSeconds).zone(timeZone);
     const expected = getTimeZoneParts(native, timeZone);
 
@@ -520,7 +532,7 @@ describe('Calendar time zone conversion', () => {
   it('converts calendar to epoch for an IANA time zone', () => {
     const timeZone = 'America/New_York';
     const native = new Date(Date.UTC(2021, 10, 7, 5, 6, 7, 0));
-    const expectedEpoch = Decimal(native.getTime()).div(1000);
+    const expectedEpoch = Decimal(native.getTime()).divExact(1000);
     const parts = getTimeZoneParts(native, timeZone);
     const date = Calendar.fromComponents({ ...parts, zone: timeZone }).zone(timeZone);
 
@@ -537,7 +549,7 @@ describe('Calendar time zone conversion', () => {
     ['Pacific/Apia', '2011-12-30T12:00:00', '2011-12-30T22:00:00Z'],
   ])('resolves gaps and overlaps in %s at %s', (zone, input, expected) => {
     const date = Calendar.parse(input, undefined, zone);
-    expect(date.epoch().toString()).toBe(Decimal(Date.parse(expected)).div(1000).toString());
+    expect(date.epoch().toString()).toBe(Decimal(Date.parse(expected)).divExact(1000).toString());
     expect(date.zone()).toBe('local');
     const components = Calendar.parse(input, undefined, 'utc').utc().components();
     const fromComponents = Calendar.fromComponents({ ...components, zone });
