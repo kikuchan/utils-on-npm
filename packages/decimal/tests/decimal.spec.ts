@@ -2,21 +2,304 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RoundingMode } from '../src/index.ts';
 import { Decimal, type DecimalLike, isDecimal, max, min, minmax, pow10 } from '../src/index.ts';
 
-const guardAllowance = (precision: number, base: NonNullable<Decimal>, value: NonNullable<Decimal>) => {
-  const target = precision < 0 ? 0 : precision;
-  const baseScale = base.digits <= 0 ? 0 : base.digits;
-  const valueScale = value.digits <= 0 ? 0 : value.digits;
-  const minGuard = Math.max(baseScale, valueScale) + 1;
-  let guard = Math.max(minGuard, 1);
-  for (;;) {
-    const frac = target + guard;
-    const steps = Math.ceil(frac * Math.log2(10)) + guard;
-    const ops = Math.max(steps * 2, 1);
-    const required = Math.max(minGuard, Math.ceil(Math.log10(ops)) + 1);
-    if (required <= guard) return guard;
-    guard = required;
-  }
-};
+describe('division precision contracts', () => {
+  it('corrects quotient order guesses at powers of ten, including coefficients beyond Number range', () => {
+    for (const exponent of [16, 100, 308, 309, 1000]) {
+      const boundary = 10n ** BigInt(exponent);
+      expect(
+        Decimal(boundary - 1n)
+          .div(1, 3, 'floor')
+          .eq(999n * 10n ** BigInt(exponent - 3)),
+      ).toBe(true);
+      expect(
+        Decimal(boundary + 1n)
+          .div(1, 3, 'floor')
+          .eq(boundary),
+      ).toBe(true);
+      expect(
+        Decimal(boundary - 1n)
+          .div(boundary, 3, 'floor')
+          .eq('0.999'),
+      ).toBe(true);
+      expect(
+        Decimal(boundary)
+          .div(boundary + 1n, 3, 'floor')
+          .eq('0.999'),
+      ).toBe(true);
+      expect(
+        Decimal(boundary)
+          .div(boundary - 1n, 3, 'floor')
+          .eq(1),
+      ).toBe(true);
+      expect(
+        Decimal(-boundary)
+          .div(boundary + 1n, 3, 'ceil')
+          .eq('-0.999'),
+      ).toBe(true);
+    }
+  });
+
+  it('subtracts operand scales before applying the output precision', () => {
+    const digits = Number.MAX_SAFE_INTEGER;
+    const a = Decimal({ coeff: 1n, digits });
+    const b = Decimal({ coeff: 3n, digits });
+    expect(a.divRound(b, 2).toString()).toBe('0.33');
+    expect(a.div(b, 3).toString()).toBe('0.333');
+    expect(Decimal({ coeff: 9999n, digits }).div(1, 1).digits).toBe(digits - 4);
+    expect(() => Decimal({ coeff: 10n, digits: -digits }).div(1, 1)).toThrow(RangeError);
+  });
+
+  it('distinguishes exact, automatic, significant, and fallback precision', () => {
+    expect(Decimal(1).div(8).toString()).toBe('0.125');
+    expect(Decimal(1).div(8, 2).toString()).toBe('0.13');
+    expect(Decimal(1).divExact(8, 2).toString()).toBe('0.125');
+    expect(Decimal(1).divExact(3, 2).toString()).toBe('0.33');
+    expect(() => Decimal(1).divExact(3)).toThrow('Non-terminating');
+    expect(() => Decimal(1).divExact(3, undefined)).toThrow('Non-terminating');
+    expect(Decimal(1).div(3, undefined).eq(Decimal(1).divExact(3, 18))).toBe(true);
+    const x = Decimal('1.2345678901234567890123456789');
+    expect(x.div(1).eq(x)).toBe(true);
+    expect(x.div(1, 18).eq(x)).toBe(false);
+  });
+
+  it('retains tiny and huge quotients with bounded significant coefficients', () => {
+    expect(Decimal(1).div('3e30').eq('3.33333333333333333e-31')).toBe(true);
+    expect(Decimal('1e1000000').div(3).coeff).toBe(333333333333333333n);
+    expect(Decimal('1e-1000000').div(3).digits).toBe(1000018);
+    expect(Decimal('2e-20').div(2).eq('1e-20')).toBe(true);
+    expect(Decimal('9.999').div(1, 3).eq(10)).toBe(true);
+  });
+
+  it('constructs exact quotients after cancellation and mixed factors', () => {
+    expect(Decimal(3).divExact(6).toString()).toBe('0.5');
+    expect(
+      Decimal(1)
+        .divExact(2n ** 100n)
+        .mul(2n ** 100n)
+        .eq(1),
+    ).toBe(true);
+    expect(Decimal('7e-80').divExact('280e20').eq('2.5e-102')).toBe(true);
+    expect(Decimal('-7e80').divExact('-280e-20').eq('2.5e98')).toBe(true);
+  });
+
+  it('rounds the exact quotient directly at integer and fractional boundaries', () => {
+    const x = Decimal('2.99999999999999999999');
+    expect(x.div(3).floor().eq(1)).toBe(true);
+    expect(x.divFloor(3).eq(0)).toBe(true);
+    const y = Decimal('1.49999999999999999999');
+    expect(y.div(3).round().eq(1)).toBe(true);
+    expect(y.divRound(3).eq(0)).toBe(true);
+    expect(Decimal(1).div(8, 2).floor(2).eq('0.13')).toBe(true);
+    expect(Decimal(1).divFloor(8, 2).eq('0.12')).toBe(true);
+  });
+
+  it.each([
+    [7, 3, 2, 3, 2],
+    [-7, 3, -3, -2, -2],
+    [7, -3, -3, -2, -2],
+    [-7, -3, 2, 3, 2],
+  ])('handles directed division of %s by %s', (a, b, floor, ceil, trunc) => {
+    expect(Decimal(a).divFloor(b).eq(floor)).toBe(true);
+    expect(Decimal(a).divCeil(b).eq(ceil)).toBe(true);
+    expect(Decimal(a).divTrunc(b).eq(trunc)).toBe(true);
+    expect(Decimal(a).divRound(b).eq(trunc)).toBe(true);
+  });
+
+  it('handles signs at ties and supports negative digit positions', () => {
+    expect(Decimal(1).divRound(-8, 2).toString()).toBe('-0.13');
+    expect(Decimal(-1).divRound(-8, 2).toString()).toBe('0.13');
+    expect(Decimal(12345).divRound(7, -2).eq(1800)).toBe(true);
+    expect(Decimal(12345).divFloor(7, -2).eq(1700)).toBe(true);
+    expect(Decimal(-12345).divCeil(7, -2).eq(-1700)).toBe(true);
+    expect(Decimal(-12345).divTrunc(7, -2).eq(-1700)).toBe(true);
+  });
+
+  it('preserves requested scale for zero and exact fixed-place results', () => {
+    expect(Decimal(0).divRound(7, 4).toString()).toBe('0.0000');
+    expect(Decimal(1).divFloor(2, 4).toString()).toBe('0.5000');
+    expect(Decimal('1e-1000000').divRound(2, 2).toString()).toBe('0.00');
+    expect(Decimal('-1e-1000000').divFloor(2, 2).toString()).toBe('-0.01');
+    expect(Decimal('1e-1000000').divCeil(2, 2).toString()).toBe('0.01');
+  });
+
+  it('matches independent integer quotient and remainder rounding', () => {
+    const modes: RoundingMode[] = ['round', 'floor', 'ceil', 'trunc'];
+    for (let a = -15n; a <= 15n; a++) {
+      for (let b = -9n; b <= 9n; b++) {
+        if (!b) continue;
+        for (const mode of modes) {
+          const n = a * 100n * (b < 0n ? -1n : 1n);
+          const d = b < 0n ? -b : b;
+          const remainder = n % d;
+          let expected = n / d;
+          if (remainder) {
+            if (mode === 'floor' && n < 0n) expected--;
+            if (mode === 'ceil' && n > 0n) expected++;
+            if (mode === 'round' && (remainder < 0n ? -remainder : remainder) * 2n >= d) {
+              expected += n < 0n ? -1n : 1n;
+            }
+          }
+          expect(Decimal(a).divRound(b, 2, mode).coeff).toBe(expected);
+        }
+      }
+    }
+  });
+
+  it('supports self aliases and leaves mutable receivers intact on errors', () => {
+    for (const method of ['div$', 'divExact$', 'divRound$', 'divFloor$', 'divCeil$', 'divTrunc$'] as const) {
+      const x = Decimal('-12.345');
+      expect(x[method](x)).toBe(x);
+      expect(x.eq(1)).toBe(true);
+      const y = Decimal('12.345');
+      expect(() => y[method](0)).toThrow('Division by zero');
+      expect(y.toString()).toBe('12.345');
+    }
+    const x = Decimal('0.1');
+    expect(() => x.divExact$(3)).toThrow('Non-terminating');
+    expect(x.toString()).toBe('0.1');
+    expect(() => x.inverse$(0)).toThrow();
+    expect(x.toString()).toBe('0.1');
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, 9007199254740992n])(
+    'rejects invalid precision %s even on exact results',
+    (p) => {
+      expect(() => Decimal(1).div(1, p)).toThrow();
+      expect(() => Decimal(1).divExact(1, p)).toThrow();
+      expect(() => Decimal(1).pow(0, p)).toThrow();
+      expect(() => Decimal(1).sqrt(p)).toThrow();
+      expect(() => Decimal(1).log(10, p)).toThrow();
+    },
+  );
+
+  it('checks scale arithmetic without overflowing number integers', () => {
+    const x = Decimal({ coeff: 1n, digits: Number.MAX_SAFE_INTEGER });
+    expect(x.div('1e-1').digits).toBe(Number.MAX_SAFE_INTEGER - 1);
+    expect(x.div(1, 1).digits).toBe(Number.MAX_SAFE_INTEGER);
+    expect(x.div(1, 18).digits).toBe(Number.MAX_SAFE_INTEGER);
+    expect(() => x.divExact(2)).toThrow();
+    expect(() => x.mul$('0.1')).toThrow();
+    expect(x.digits).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
+describe('significant precision mathematics', () => {
+  it('keeps non-negative integer powers exact by default', () => {
+    expect(Decimal(2).pow(100).coeff).toBe(2n ** 100n);
+    expect(
+      Decimal('0.5')
+        .pow(100)
+        .eq({ coeff: 5n ** 100n, digits: 100 }),
+    ).toBe(true);
+    expect(Decimal('1e-10').pow(2).eq('1e-20')).toBe(true);
+    const x = Decimal('1.2345678901234567890123456789');
+    expect(x.pow(1).eq(x)).toBe(true);
+    expect(x.pow(2).eq(x.mul(x))).toBe(true);
+    expect(Decimal(1).pow(Number.MAX_SAFE_INTEGER).eq(1)).toBe(true);
+    expect(Decimal(-1).pow(Number.MAX_SAFE_INTEGER).eq(-1)).toBe(true);
+  });
+
+  it('unifies negative integer powers, reciprocals, and division', () => {
+    for (const x of ['2', '3', '1e-1000', '-8']) {
+      const value = Decimal(x);
+      expect(value.pow(-1).eq(value.inverse())).toBe(true);
+      expect(value.inverse().eq(Decimal(1).div(value))).toBe(true);
+      expect(value.pow(-1, 5).eq(value.inverse(5))).toBe(true);
+    }
+    expect(Decimal(2).pow(-100).eq(Decimal('0.5').pow(100))).toBe(true);
+  });
+
+  it('bounds integer-power output without constructing the full exact coefficient', () => {
+    expect(Decimal('1.0001').pow(1_000_000, 20).eq('2.6747109931421401729e43')).toBe(true);
+    expect(Decimal(2).pow(1_000_000, 18).coeff.toString().length).toBeLessThanOrEqual(18);
+    expect(Decimal('0.5').pow(1_000_000, 18).coeff.toString().length).toBeLessThanOrEqual(18);
+    expect(
+      Decimal(25)
+        .pow(100, 139)
+        .eq(Decimal(25n ** 100n).div(1, 139)),
+    ).toBe(true);
+  });
+
+  it('matches exact integer powers rounded once, including reciprocal ties', () => {
+    for (const x of ['-1.25', '0.5', '1.25', '2.5', '9.99', '0.03125']) {
+      for (const n of [1, 2, 7, 30, 100]) {
+        for (const p of [1, 3, 18]) {
+          const exact = Decimal(x).pow(n);
+          expect(Decimal(x).pow(n, p).eq(exact.div(1, p))).toBe(true);
+          expect(Decimal(x).pow(-n, p).eq(Decimal(1).div(exact, p))).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('finds exact roots and rounds perfect roots only when requested', () => {
+    expect(Decimal('1e-40').sqrt().eq('1e-20')).toBe(true);
+    expect(Decimal('0.000144').sqrt().toString()).toBe('0.012');
+    expect(Decimal('-0.000000027').root(3).toString()).toBe('-0.003');
+    expect(Decimal('1.5241383936').sqrt().toString()).toBe('1.23456');
+    expect(Decimal('1.5241383936').sqrt(5).toString()).toBe('1.2346');
+    expect(Decimal('1.23456').root(1, 3).toString()).toBe('1.23');
+  });
+
+  it('rounds roots at and on both sides of a midpoint', () => {
+    const boundary = Decimal('1.25').pow(3);
+    expect(boundary.root(3, 2).toString()).toBe('1.3');
+    expect(boundary.sub('1e-60').root(3, 2).toString()).toBe('1.2');
+    expect(boundary.add('1e-60').root(3, 2).toString()).toBe('1.3');
+    expect(boundary.neg().root(3, 2).toString()).toBe('-1.3');
+    expect(Decimal(2).sqrt(30).toString()).toBe('1.41421356237309504880168872421');
+  });
+
+  it('computes roots independently of decimal exponent magnitude', () => {
+    const small = Decimal('2e-1000000').sqrt(30);
+    const large = Decimal('2e1000000').sqrt(30);
+    expect(small.coeff).toBe(141421356237309504880168872421n);
+    expect(small.digits).toBe(500029);
+    expect(large.coeff).toBe(small.coeff);
+    expect(large.digits).toBe(-499971);
+    expect(Decimal(2).root(1000000000000n, 30).toString()).toBe('1.00000000000069314718056018554');
+  });
+
+  it('takes exact rational powers when possible', () => {
+    expect(Decimal(32).pow('0.2').eq(2)).toBe(true);
+    expect(Decimal(16).pow('1.25').eq(32)).toBe(true);
+    expect(Decimal(4).pow('-0.5').eq('0.5')).toBe(true);
+    expect(Decimal(9).pow('-0.5').eq(Decimal(1).div(3))).toBe(true);
+    expect(Decimal(2).pow('0.5', 30).eq(Decimal(2).sqrt(30))).toBe(true);
+    expect(Decimal('1e-1000000').pow('0.5').eq('1e-500000')).toBe(true);
+  });
+
+  it('matches independently computed fractional-power references', () => {
+    expect(Decimal(2).pow('1.5', 30).toString()).toBe('2.82842712474619009760337744842');
+    expect(Decimal(2).pow('0.1', 30).toString()).toBe('1.07177346253629316421300632502');
+    expect(Decimal('1.0000000001').pow('0.9876543210123456789', 60).toString()).toBe(
+      '1.00000000009876543210117360157401211674116516759003054574136',
+    );
+    expect(Decimal('7.8125').pow('-0.27182818284590452353', 50).toString()).toBe(
+      '0.57189264128740039182515599298878760484013009527135',
+    );
+  });
+
+  it('computes logarithms with significant precision and cancellation near unity', () => {
+    expect(Decimal(3).log(2, 30).toString()).toBe('1.58496250072115618145373894395');
+    expect(Decimal('0.05').log(10, 30).toString()).toBe('-1.30102999566398119521373889472');
+    expect(Decimal('1.00000000000000000001').log('1.00000000000000000003', 30).toString()).toBe(
+      '0.333333333333333333336666666667',
+    );
+    expect(Decimal('1e-1000000').log(10).eq(-1000000)).toBe(true);
+    expect(Decimal(2).log(4, 1).eq('0.5')).toBe(true);
+    expect(Decimal(1).log(2).eq(0)).toBe(true);
+    expect(Decimal(8).log(2, 1).eq(3)).toBe(true);
+  });
+
+  it('does not modify mathematical receivers when validation fails', () => {
+    const x = Decimal(-2);
+    expect(() => x.pow$('0.5')).toThrow();
+    expect(() => x.sqrt$()).toThrow();
+    expect(() => x.log$(10)).toThrow();
+    expect(x.eq(-2)).toBe(true);
+  });
+});
 
 describe('Decimal construction', () => {
   it('creates decimals from native numbers', () => {
@@ -96,14 +379,14 @@ describe('Decimal arithmetic', () => {
 
   it('rounds divisions with negative divisors correctly', () => {
     const quotient = Decimal(1).clone();
-    quotient.div$(-3, 0n, 'round');
+    quotient.divRound$(-3, 0n, 'round');
     expect(quotient.toString()).toBe('0');
   });
 
-  it('treats negative digit counts as zero when dividing', () => {
-    const quotient = Decimal(1).div(Decimal(3), -2n);
+  it('supports negative digit positions when dividing', () => {
+    const quotient = Decimal(1).divRound(Decimal(3), -2n);
     expect(quotient.toString()).toBe('0');
-    expect(quotient.digits).toBe(0);
+    expect(quotient.digits).toBe(-2);
   });
 
   it('scales operands to align fractional digits when dividing', () => {
@@ -124,12 +407,12 @@ describe('Decimal arithmetic', () => {
   });
 
   it('rejects non-integer digit counts for division', () => {
-    expect(() => Decimal(1).div(2, 1.2)).toThrow('Digits must be an integer');
+    expect(() => Decimal(1).div(2, 1.2)).toThrow('Precision must be a positive safe integer');
   });
 
   it('ignores unknown rounding modes during division', () => {
     const value = Decimal(10).clone();
-    value.div$(3, 0n, 'unknown' as RoundingMode);
+    value.divRound$(3, 0n, 'unknown' as RoundingMode);
     expect(value.toString()).toBe(Decimal(3).toString());
   });
 });
@@ -584,7 +867,7 @@ describe('Decimal pow', () => {
   it('raises to integer exponents', () => {
     const value = Decimal(3);
     const powered = value.pow(4n, 8n);
-    expect(powered.toString()).toBe('81.00000000');
+    expect(powered.toString()).toBe('81');
   });
 
   it('handles fractional exponents with requested precision', () => {
@@ -594,7 +877,7 @@ describe('Decimal pow', () => {
 
   it('supports negative exponents by returning reciprocals', () => {
     const result = Decimal(8).pow(-2n, 9n);
-    expect(result.toString()).toBe('0.015625000');
+    expect(result.toString()).toBe('0.015625');
     expect(result.rescale().toString()).toBe('0.015625');
   });
 
@@ -621,18 +904,18 @@ describe('Decimal pow', () => {
     const base = Decimal('1.0000000001');
     const exponent = Decimal('0.9876543210123456789');
     const digits = 60;
-    const highPrecision = base.pow(exponent, digits + 30).round(digits);
+    const highPrecision = base.pow(exponent, digits + 30).div(1, digits);
     const result = base.pow(exponent, digits);
-    expect(result.round(digits).eq(highPrecision)).toBe(true);
+    expect(result.eq(highPrecision)).toBe(true);
   });
 
   it('preserves precision for negative fractional exponents', () => {
     const base = Decimal('7.8125');
     const exponent = Decimal('-0.27182818284590452353');
     const digits = 50;
-    const highPrecision = base.pow(exponent, digits + 30).round(digits);
+    const highPrecision = base.pow(exponent, digits + 30).div(1, digits);
     const result = base.pow(exponent, digits);
-    expect(result.round(digits).eq(highPrecision)).toBe(true);
+    expect(result.eq(highPrecision)).toBe(true);
   });
 });
 
@@ -680,61 +963,61 @@ describe('Decimal logarithms', () => {
   it('returns correct integer part for near-unity ratios', () => {
     const base = Decimal('1.0000000001');
     const value = Decimal('1.000000000099999999');
-    const result = value.log(base, 0n);
+    const result = value.log(base, 1n);
     expect(result.toString()).toBe(Decimal(1).toString());
   });
 
   it('retains integer part for powers with tiny deltas', () => {
     const base = Decimal('1.00000000001');
     const powered = base.pow(2n, 32n);
-    const result = powered.log(base, 0n);
+    const result = powered.log(base, 1n);
     expect(result.toString()).toBe(Decimal(2).toString());
   });
 
   it('matches coarse precision with high-precision reference near unity', () => {
     const base = Decimal('1.000000000001');
     const value = Decimal('1.000000000009');
-    const highPrecision = value.log(base, 20n).round(0n);
-    const coarse = value.log(base, 0n);
-    expect(coarse.round(0n).eq(highPrecision)).toBe(true);
+    const highPrecision = value.log(base, 20n).div(1, 1n);
+    const coarse = value.log(base, 1n);
+    expect(coarse.eq(highPrecision)).toBe(true);
   });
 
-  it('treats negative digit counts as zero when logging', () => {
-    const withNegativeDigits = Decimal(10).log(Decimal(10), -1n);
-    const baseline = Decimal(10).log(Decimal(10), 0n);
-    expect(withNegativeDigits.eq(baseline)).toBe(true);
+  it('rejects non-positive logarithm precision', () => {
+    expect(() => Decimal(10).log(10, -1n)).toThrow();
+    expect(() => Decimal(10).log(10, 0n)).toThrow();
   });
 
-  it('returns logarithms with requested fractional digits', () => {
+  it('returns logarithms with requested significant digits', () => {
     const digits = 6;
     const result = Decimal(0.05).log(Decimal(10), digits);
-    expect(result.digits >= digits).toBe(true);
-    expect(result.round(digits).digits).toBe(digits);
+    expect(result.toString()).toBe('-1.30103');
+    expect(result.coeff.toString().replace('-', '').length).toBe(digits);
   });
 
-  it('rounds logarithm output to the requested fractional digits', () => {
+  it('does not expose logarithm guard digits', () => {
     const digits = 6;
     const result = Decimal(0.05).log(Decimal(10), digits);
-    expect(result.digits <= digits + 6).toBe(true);
-    expect(result.round(digits).toString()).toBe('-1.301030');
+    expect(result.toFixed(6)).toBe('-1.301030');
+    expect(result.div(1, digits).eq(result)).toBe(true);
   });
 
-  it('keeps guard digits minimal when zero precision is requested', () => {
-    const digits = 0;
+  it('supports single-digit logarithms', () => {
+    const digits = 1;
     const base = Decimal(10);
     const value = Decimal(0.05);
     const result = value.log(base, digits);
-    const allowance = guardAllowance(digits, base, value);
-    expect(result.digits <= digits + allowance).toBe(true);
+    expect(result.eq(-1)).toBe(true);
   });
 
-  it('scales guard digits logarithmically with requested precision', () => {
+  it('supports high-precision logarithms without exposing working digits', () => {
     const digits = 80;
     const base = Decimal(10);
     const value = Decimal(0.05);
     const result = value.log(base, digits);
-    const allowance = guardAllowance(digits, base, value);
-    expect(result.digits <= digits + allowance).toBe(true);
+    expect(result.coeff.toString().replace('-', '').length).toBeLessThanOrEqual(digits);
+    expect(result.toString()).toBe(
+      '-1.3010299956639811952137388947244930267681898814621085413104274611271081892744245',
+    );
   });
 
   it('rejects non-positive arguments', () => {
@@ -751,10 +1034,9 @@ describe('Decimal logarithms', () => {
     expect(() => Decimal(10).log(Decimal(1), 6n)).toThrow('Logarithm base cannot be one');
   });
 
-  it('computes logarithms with fractional digit control for other bases', () => {
+  it('computes logarithms with significant digit control for other bases', () => {
     const result = Decimal(3).log(Decimal(2), 6n);
-    const expected = Decimal({ coeff: 1584963n, digits: 6 });
-    expect(result.isCloseTo(expected, 1e-6)).toBe(true);
+    expect(result.toString()).toBe('1.58496');
   });
 });
 
@@ -788,9 +1070,9 @@ describe('Decimal roots', () => {
   it('mutates in place when using sqrt$', () => {
     const value = Decimal('7.29');
     value.sqrt$(4n);
-    expect(value.toString()).toBe('2.7000');
+    expect(value.toString()).toBe('2.7');
     expect(value.rescale().toString()).toBe('2.7');
-    expect(value.digits).toBe(4);
+    expect(value.digits).toBe(1);
   });
 
   it('matches general root computation for sqrt$', () => {
@@ -804,23 +1086,23 @@ describe('Decimal roots', () => {
 
   it('computes general integer roots', () => {
     const root = Decimal(81).root(4n, 8n);
-    expect(root.toString()).toBe('3.00000000');
+    expect(root.toString()).toBe('3');
   });
 
   it('computes roots safely when fallback inverse is unity', () => {
     const root = Decimal(9).root(2n, 8n);
-    expect(root.toString()).toBe('3.00000000');
+    expect(root.toString()).toBe('3');
   });
 
   it('supports odd roots of negative numbers', () => {
     const root = Decimal(-27).root(3n, 8n);
-    expect(root.toString()).toBe('-3.00000000');
+    expect(root.toString()).toBe('-3');
   });
 
-  it('uses floating approximations for moderate roots', () => {
+  it('does not require floating approximations for moderate roots', () => {
     const powSpy = vi.spyOn(Math, 'pow');
     const root = Decimal(256).root(4n, 6n);
-    expect(powSpy).toHaveBeenCalled();
+    expect(powSpy).not.toHaveBeenCalled();
     expect(root.eq(Decimal(4))).toBe(true);
     powSpy.mockRestore();
   });
@@ -831,7 +1113,7 @@ describe('Decimal roots', () => {
 
   it('accepts numeric root degrees', () => {
     const root = Decimal(16).root(2, 6n);
-    expect(root.toString()).toBe('4.000000');
+    expect(root.toString()).toBe('4');
   });
 
   it('rejects non-integer numeric root degrees', () => {
@@ -849,9 +1131,8 @@ describe('Decimal roots', () => {
     expect(() => Decimal(9).root(0n, 4n)).toThrow('Invalid root degree');
   });
 
-  it('treats positive precision exponents as zero when taking roots', () => {
-    const root = Decimal(9).root(2n, -1n);
-    expect(root.toString()).toBe(Decimal(3).toString());
+  it('rejects negative root precision', () => {
+    expect(() => Decimal(9).root(2n, -1n)).toThrow();
   });
 
   it('computes large-magnitude roots without relying on floating guesses', () => {
@@ -868,18 +1149,18 @@ describe('Decimal roots', () => {
     expect(root.eq(expected)).toBe(true);
   });
 
-  it('reseeds zero root estimates when coarse precision truncates guesses', () => {
+  it('preserves tiny roots at single-digit precision', () => {
     const value = Decimal({ coeff: 1n, digits: 2000 });
-    const root = value.root(10n, 0n);
-    expect(root.toString()).toBe('0');
-    expect(root.digits).toBe(0);
+    const root = value.root(10n, 1n);
+    expect(root.coeff).toBe(1n);
+    expect(root.digits).toBe(200);
   });
 
   it('handles high-degree roots for tiny magnitudes with coarse precision', () => {
     const value = Decimal({ coeff: 1n, digits: 2000 });
-    const root = value.root(20n, 0n);
-    expect(root.toString()).toBe('0');
-    expect(root.digits).toBe(0);
+    const root = value.root(20n, 1n);
+    expect(root.coeff).toBe(1n);
+    expect(root.digits).toBe(100);
   });
 
   it('matches high-precision power check for fractional roots', () => {
@@ -888,7 +1169,10 @@ describe('Decimal roots', () => {
     const digits = 60;
     const root = value.root(degree, digits);
     const recomposed = root.pow(degree, digits + 30).rescale(digits);
-    const tolerance = pow10(-(digits - 4));
+    const tolerance = value
+      .abs()
+      .mul(degree)
+      .mul(pow10(-(digits - 1)));
     expect(recomposed.isCloseTo(value.rescale(digits), tolerance)).toBe(true);
   });
 
@@ -907,39 +1191,23 @@ describe('Decimal roots', () => {
     const huge = Decimal({ coeff: 1n, digits: -5000 });
     const root = huge.root(2n, 4n);
     expect(powSpy).not.toHaveBeenCalled();
-    expect(root.digits).toBe(4);
+    expect(root.digits).toBe(-2500);
     powSpy.mockRestore();
   });
 
-  it('recovers when floating approximation yields a non-finite guess', () => {
+  it('works independently of floating power results', () => {
     const powSpy = vi.spyOn(Math, 'pow').mockReturnValueOnce(Number.NaN);
     const root = Decimal(64).root(3n, 8n);
-    expect(powSpy).toHaveBeenCalled();
+    expect(powSpy).not.toHaveBeenCalled();
     expect(root.eq(Decimal(4))).toBe(true);
     powSpy.mockRestore();
   });
 
-  it('treats non-positive numeric degree hints as fallbacks while keeping bigint logic', () => {
-    const originalNumber = Number;
-    const targetDegree = 2n;
-    const mockNumber = function (value: unknown) {
-      if (value === targetDegree) return 0;
-      return originalNumber(value as never);
-    } as NumberConstructor;
-    for (const key of Object.getOwnPropertyNames(originalNumber)) {
-      const descriptor = Object.getOwnPropertyDescriptor(originalNumber, key);
-      if (descriptor) {
-        Object.defineProperty(mockNumber, key, descriptor);
-      }
-    }
-
-    (globalThis as { Number: NumberConstructor }).Number = mockNumber;
-    try {
-      const root = Decimal(16).root(targetDegree, 6n);
-      expect(root.eq(Decimal(4))).toBe(true);
-    } finally {
-      (globalThis as { Number: NumberConstructor }).Number = originalNumber;
-    }
+  it('rejects root degrees outside the safe integer range without mutating the receiver', () => {
+    const value = Decimal(16);
+    expect(() => value.root$(9007199254740992n)).toThrow(RangeError);
+    expect(() => value.root$(Number.MAX_SAFE_INTEGER + 1)).toThrow(RangeError);
+    expect(value.eq(16)).toBe(true);
   });
 });
 
@@ -1061,8 +1329,7 @@ describe('Decimal presentation', () => {
   });
 
   it('throws when decimal precision exceeds safe conversion range', () => {
-    const huge = Decimal({ coeff: 1n, digits: 9007199254740992 });
-    expect(() => huge.toString()).toThrow(RangeError);
+    expect(() => Decimal({ coeff: 1n, digits: 9007199254740992 })).toThrow(RangeError);
   });
 
   it('produces fixed decimals with padding without rounding', () => {
@@ -1242,9 +1509,8 @@ describe('Decimal boundaries', () => {
     expect(() => Decimal(0).pow(-1n, 6n)).toThrow('Zero to negative exponent is undefined');
   });
 
-  it('treats negative digit counts as zero when powering', () => {
-    const power = Decimal(2).pow(2n, -1n);
-    expect(power.toString()).toBe(Decimal(4).toString());
+  it('rejects negative power precision', () => {
+    expect(() => Decimal(2).pow(2n, -1n)).toThrow();
   });
 
   it('throws when raising negative bases to fractional exponents', () => {
@@ -1265,7 +1531,7 @@ describe('Decimal boundaries', () => {
 
   it('handles positive-exponent integer parts when exponentiating', () => {
     const exponent = Decimal({ coeff: 12n, digits: -1 });
-    const result = Decimal(2).pow(exponent, 20n);
+    const result = Decimal(2).pow(exponent);
     const expected = Decimal({ coeff: 1n << 120n, digits: 0 });
     expect(result.eq(expected)).toBe(true);
   });
@@ -1277,41 +1543,41 @@ describe('Decimal boundaries', () => {
     expect(original.toString()).toBe(Decimal(3.5).toString());
   });
 
-  it('respects degree-one roots with rescaling', () => {
+  it('does not pad degree-one roots to the precision', () => {
     const value = Decimal({ coeff: 1234000n, digits: 6 });
     const result = value.root(1n, 8n);
-    expect(result.toString()).toBe(Decimal('1.23400000').toString());
-    expect(result.digits).toBe(8);
+    expect(result.toString()).toBe('1.234');
+    expect(result.digits).toBe(3);
   });
 
-  it('keeps scale when requesting coarser degree-one root precision', () => {
+  it('rounds degree-one roots to significant precision', () => {
     const value = Decimal({ coeff: 1234000n, digits: 6 });
-    const result = value.root(1n, 5n);
-    expect(result.toString()).toBe(Decimal('1.234000').toString());
-    expect(result.digits).toBe(6);
+    const result = value.root(1n, 3n);
+    expect(result.toString()).toBe('1.23');
+    expect(result.digits).toBe(2);
     expect(value.digits).toBe(6);
   });
 
   it('retains requested digits when dividing with trailing zeros', () => {
-    const result = Decimal(1).div(Decimal(2), 4n);
+    const result = Decimal(1).divRound(Decimal(2), 4n);
     expect(result.toString()).toBe(Decimal('0.5000').toString());
     expect(result.digits).toBe(4);
   });
 
-  it('retains requested digits when raising to negative exponents', () => {
+  it('does not pad significant digits when raising to negative exponents', () => {
     const result = Decimal(2).pow(-1n, 6n);
-    expect(result.toString()).toBe(Decimal('0.500000').toString());
-    expect(result.digits).toBe(6);
+    expect(result.toString()).toBe('0.5');
+    expect(result.digits).toBe(1);
   });
 
-  it('retains requested digits when taking roots with trailing zeros', () => {
+  it('normalizes significant-precision roots with trailing zeros', () => {
     const result = Decimal('1.440000').root(2n, 6n);
-    expect(result.toString()).toBe(Decimal('1.200000').toString());
-    expect(result.digits).toBe(6);
+    expect(result.toString()).toBe('1.2');
+    expect(result.digits).toBe(1);
   });
 
   it('rescale compresses digits only when explicitly invoked', () => {
-    const value = Decimal(1).div(2, 6n);
+    const value = Decimal(1).divRound(2, 6n);
     const compressed = value.rescale();
     expect(value.digits).toBe(6);
     expect(compressed.toString()).toBe(Decimal('0.5').toString());
@@ -1330,42 +1596,15 @@ describe('Decimal boundaries', () => {
     expect(result.number()).toBeCloseTo(Math.log2(3), 5);
   });
 
-  it('accumulates fractional logarithm terms', () => {
-    const proto = Object.getPrototypeOf(Decimal(1)) as { add$: (value: DecimalLike) => DecimalLike };
-    const addSpy = vi.spyOn(proto, 'add$');
+  it('computes fractional logarithms at the requested precision', () => {
     const result = Decimal(3).log(10, 8n);
-    expect(result.number()).toBeCloseTo(Math.log10(3), 6);
-    expect(addSpy).toHaveBeenCalled();
-    addSpy.mockRestore();
+    expect(result.toString()).toBe('0.47712125');
   });
 
-  it('rejects invalid pow5n inputs during logarithms', () => {
-    const target = 8;
-    const baseDigits = Decimal(10).digits;
-    const valueDigits = Decimal(3).digits;
-    const minGuard = Math.max(Math.max(0, baseDigits), Math.max(0, valueDigits)) + 1;
-    let guardPrec = Math.max(minGuard, 1);
-    let fracPrec = target + guardPrec;
-    let bits = 0;
-    for (;;) {
-      bits = Math.ceil(fracPrec * Math.log2(10)) + guardPrec;
-      const ops = Math.max(bits * 2, 1);
-      const required = Math.max(minGuard, Math.ceil(Math.log10(ops)) + 1);
-      if (required <= guardPrec) break;
-      guardPrec = required;
-      fracPrec = target + guardPrec;
-    }
-
-    const originalIsInteger = Number.isInteger;
-    Number.isInteger = (value: unknown): boolean => {
-      if (value === bits) return false;
-      return originalIsInteger(value as never);
-    };
-    try {
-      expect(() => Decimal(3).log(10, target)).toThrow();
-    } finally {
-      Number.isInteger = originalIsInteger;
-    }
+  it('rejects unsafe logarithm precision before mutating the receiver', () => {
+    const value = Decimal(3);
+    expect(() => value.log$(10, Number.MAX_SAFE_INTEGER + 1)).toThrow();
+    expect(value.eq(3)).toBe(true);
   });
 
   it('converts positive exponent decimals to strings without decimal points', () => {
@@ -1408,7 +1647,7 @@ describe('Decimal inverse operations', () => {
   it('computes multiplicative inverses without mutating the original', () => {
     const original = Decimal('4');
     const inverse = original.inverse(4n);
-    expect(inverse.toString()).toBe('0.2500');
+    expect(inverse.toString()).toBe('0.25');
     expect(original.toString()).toBe('4');
   });
 

@@ -12,6 +12,7 @@ export interface Decimal {
   readonly [__brand]: never;
 
   coeff: bigint;
+  /** Decimal scale. Must always be a safe integer, including when assigned directly. */
   digits: number;
 
   // Copying
@@ -63,10 +64,24 @@ export interface Decimal {
   mul(v: DecimalLike, digits?: number | bigint | undefined): Decimal;
   shift10$(exponent: bigint | number): this;
   shift10(exponent: bigint | number): Decimal;
-  inverse$(digits?: bigint | number): this;
-  inverse(digits?: bigint | number): Decimal;
-  div$(v: DecimalLike, digits?: bigint | number, mode?: RoundingMode): this;
-  div(v: DecimalLike, digits?: bigint | number, mode?: RoundingMode): Decimal;
+  inverse$(precision?: bigint | number): this;
+  inverse(precision?: bigint | number): Decimal;
+  div$(v: DecimalLike, precision?: bigint | number, mode?: RoundingMode): this;
+  /** Exact when precision is omitted and the quotient terminates; otherwise significant-digit rounding. */
+  div(v: DecimalLike, precision?: bigint | number, mode?: RoundingMode): Decimal;
+  divExact$(v: DecimalLike, fallbackPrecision?: bigint | number, mode?: RoundingMode): this;
+  /** Exact quotient; non-terminating results require an explicit significant-digit fallback. */
+  divExact(v: DecimalLike, fallbackPrecision?: bigint | number, mode?: RoundingMode): Decimal;
+  divRound$(v: DecimalLike, digits?: bigint | number, mode?: RoundingMode): this;
+  /** Round the exact quotient directly to a decimal position (default: integer, half away from zero). */
+  divRound(v: DecimalLike, digits?: bigint | number, mode?: RoundingMode): Decimal;
+  divFloor$(v: DecimalLike, digits?: bigint | number): this;
+  /** Floor the exact quotient directly to a decimal position (default: integer). */
+  divFloor(v: DecimalLike, digits?: bigint | number): Decimal;
+  divCeil$(v: DecimalLike, digits?: bigint | number): this;
+  divCeil(v: DecimalLike, digits?: bigint | number): Decimal;
+  divTrunc$(v: DecimalLike, digits?: bigint | number): this;
+  divTrunc(v: DecimalLike, digits?: bigint | number): Decimal;
 
   // Modulo and bounding
   mod$(v: DecimalLike): this;
@@ -88,14 +103,14 @@ export interface Decimal {
   isCloseTo(v: DecimalLike, tolerance: DecimalLike): boolean;
 
   // Advanced math
-  pow$(exponent: DecimalLike, digits?: bigint | number): this;
-  pow(exponent: DecimalLike, digits?: bigint | number): Decimal;
-  root$(degree: bigint | number, digits?: bigint | number): this;
-  root(degree: bigint | number, digits?: bigint | number): Decimal;
-  sqrt$(digits?: bigint | number): this;
-  sqrt(digits?: bigint | number): Decimal;
-  log$(base: DecimalLike, digits?: bigint | number): this;
-  log(base: DecimalLike, digits?: bigint | number): Decimal;
+  pow$(exponent: DecimalLike, precision?: bigint | number): this;
+  pow(exponent: DecimalLike, precision?: bigint | number): Decimal;
+  root$(degree: bigint | number, precision?: bigint | number): this;
+  root(degree: bigint | number, precision?: bigint | number): Decimal;
+  sqrt$(precision?: bigint | number): this;
+  sqrt(precision?: bigint | number): Decimal;
+  log$(base: DecimalLike, precision?: bigint | number): this;
+  log(base: DecimalLike, precision?: bigint | number): Decimal;
   order(): bigint;
 
   // Conversion
@@ -107,66 +122,21 @@ export interface Decimal {
 }
 
 function ensureInteger(value: bigint | number, message = 'Digits must be an integer'): number {
-  if (typeof value === 'bigint') {
-    const v = Number(value);
-    const max = Number.MAX_SAFE_INTEGER;
-    if (v > max || v < -max) throw new Error(message);
-    return v;
-  }
-  if (!Number.isFinite(value) || !Number.isInteger(value)) throw new Error(message);
-  return value;
-}
-
-function ensureDigits(value: bigint | number): number {
-  const result = ensureInteger(value);
-  if (result < 0) return 0;
+  const result = Number(value);
+  if (!Number.isSafeInteger(result)) throw new RangeError(message);
   return result;
 }
 
-function ensureBigInt(value: bigint | number, message = 'Value must be an integer'): bigint {
-  if (typeof value === 'bigint') return value;
-  if (!Number.isFinite(value) || !Number.isInteger(value)) throw new Error(message);
-  return BigInt(value);
-}
-
-function pow5n(n: number): bigint {
-  if (n < pow5nCache.length) return pow5nCache[n];
-  return 5n ** BigInt(n);
+function ensurePrecision(value: number | bigint): number {
+  const result = ensureInteger(value, 'Precision must be a positive safe integer');
+  if (result < 1) throw new RangeError('Precision must be a positive safe integer');
+  return result;
 }
 
 function pow10n(n: number): bigint {
+  if (n < 0) throw new RangeError('Negative integer power of ten');
   if (n < pow10nCache.length) return pow10nCache[n];
-  return 10n ** BigInt(n);
-}
-
-function powInt(base: Decimal, exponentInput: bigint | number, digits?: bigint | number): Decimal {
-  let exponent = BigInt(exponentInput);
-  if (exponent <= 0n) return new DecimalImpl(1n);
-  const result = new DecimalImpl(1n);
-  const factor = base.clone();
-  while (true) {
-    if (exponent & 1n) result.mul$(factor, digits);
-    exponent >>= 1n;
-    if (exponent === 0n) break;
-    factor.mul$(factor, digits);
-  }
-  return result;
-}
-
-function powFrac(base: Decimal, fractional: Decimal, digits: number, digitsCount: number): Decimal {
-  if (fractional.isZero() || digitsCount <= 0) return new DecimalImpl(1n);
-  const { guardPrec, rootPrec } = estimatePowFractionalSettings(digits, digitsCount);
-  const digitsString = abs(fractional.coeff).toString().padStart(digitsCount, '0');
-  let progressiveRoot = base.round(rootPrec);
-  const result = new DecimalImpl(1n);
-  for (let i = 0; i < digitsCount; i++) {
-    progressiveRoot = progressiveRoot.root(10n, rootPrec);
-    const digit = digitsString.charCodeAt(i) - 48;
-    if (digit <= 0) continue;
-    const factor = powInt(progressiveRoot.clone(), digit, guardPrec);
-    result.mul$(factor, guardPrec);
-  }
-  return result.round$(digits);
+  return 10n ** BigInt(ensureInteger(n, 'Exponent must be a safe integer'));
 }
 
 function abs(value: bigint): bigint {
@@ -211,15 +181,15 @@ function parseDecimalString(value: string): { coeff: bigint; digits: number } {
   if (exponentIndex === -1) return parsePlainDecimal(value);
   const basePart = value.slice(0, exponentIndex);
   const exponentPart = value.slice(exponentIndex + 1);
-  if (exponentPart.trim() === '') throw new Error('Invalid number');
+  if (!/^[+-]?\d+$/.test(exponentPart.trim())) throw new Error('Invalid number');
   const { coeff, digits } = parsePlainDecimal(basePart);
-  const adjustment = BigInt(exponentPart);
-  const max = BigInt(Number.MAX_SAFE_INTEGER);
-  if (adjustment > max || adjustment < -max) throw new Error('Exponent is out of range');
-  return { coeff, digits: digits - Number(adjustment) };
+  const adjustment = ensureInteger(Number(exponentPart), 'Exponent is out of range');
+  return { coeff, digits: ensureInteger(digits - adjustment, 'Exponent is out of range') };
 }
 
-function alignForOperation(a: Decimal, b: Decimal) {
+type Parts = Pick<Decimal, 'coeff' | 'digits'>;
+
+function alignForOperation(a: Parts, b: Parts): { digits: number; aCoeff: bigint; bCoeff: bigint } {
   if (a.digits >= b.digits) {
     const diff = a.digits - b.digits;
     return {
@@ -236,98 +206,588 @@ function alignForOperation(a: Decimal, b: Decimal) {
   };
 }
 
-function toBoundedNonNegativeNumber(value: number): number {
-  const numeric = Math.max(0, value);
-  return Math.min(Number.MAX_SAFE_INTEGER, numeric);
+// Shared coefficient arithmetic for public methods and the mathematical algorithms.
+
+function gcd(a: bigint, b: bigint): bigint {
+  a = abs(a);
+  b = abs(b);
+  while (b) [a, b] = [b, a % b];
+  return a;
 }
 
-function estimateLogGuardSettings(target: number, baseDigits: number, valueDigits: number) {
-  const baseScale = toBoundedNonNegativeNumber(baseDigits);
-  const valueScale = toBoundedNonNegativeNumber(valueDigits);
-  const minGuard = Math.max(baseScale, valueScale) + 1;
-  let guardPrec = Math.max(minGuard, 1);
-  let fracPrec = target + guardPrec;
-  while (true) {
-    const bits = Math.ceil(fracPrec * LOG_BINARY_PER_DECIMAL) + guardPrec;
-    const ops = Math.max(bits * 2, 1);
-    const required = Math.max(minGuard, Math.ceil(Math.log10(ops)) + 1);
-    if (required <= guardPrec) {
-      const divPrec = fracPrec + guardPrec;
-      return { guardPrec, fracPrec, bits, divPrec };
-    }
-    guardPrec = required;
-    fracPrec = target + guardPrec;
+function removeFactor(value: bigint, factor: bigint): { value: bigint; exponent: number } {
+  const powers: { factor: bigint; exponent: number }[] = [];
+  for (let exponent = 1; factor <= value && value % factor === 0n; exponent *= 2, factor *= factor) {
+    powers.push({ factor, exponent });
   }
-}
-
-function estimatePowFractionalSettings(target: number, digitsCount: number) {
-  const count = Math.max(1, digitsCount);
-  const guardExtra = Math.max(6, Math.ceil(Math.log10(count * 4)) + 2);
-  const guardPrec = target + guardExtra;
-  const rootPrec = guardPrec + Math.max(guardExtra, 6);
-  return { guardPrec, rootPrec };
-}
-
-function estimateRootIterSettings(target: number, degree: bigint) {
-  const degreeDigits = Math.max(1, degree.toString().replace('-', '').length);
-  const extra = Math.max(12, degreeDigits + 4);
-  const iterPrec = target + extra;
-  const stopShift = target + 2;
-  return { iterPrec, stopShift };
-}
-
-function extractLogIntegerPositive(
-  value: Decimal,
-  base: Decimal,
-  digits: number,
-  guardPrec: number,
-): {
-  exponent: bigint;
-  remainder: Decimal;
-} {
-  const powers: Decimal[] = [];
-  const exponents: bigint[] = [];
-  let power = new DecimalImpl(base);
-  let exponent = 1n;
-  const divDigits = digits + Math.max(guardPrec, 1);
-  while (power.le(value)) {
-    powers.push(power);
-    exponents.push(exponent);
-    power = power.mul(power);
-    exponent *= 2n;
-  }
-  const remainder = new DecimalImpl(value);
-  let result = 0n;
+  let exponent = 0;
   for (let i = powers.length - 1; i >= 0; i--) {
-    const candidate = powers[i];
-    if (remainder.ge(candidate)) {
-      remainder.div$(candidate, divDigits);
-      result += exponents[i];
+    const power = powers[i];
+    if (value % power.factor === 0n) {
+      value /= power.factor;
+      exponent += power.exponent;
     }
   }
-  return { exponent: result, remainder };
+  return { value, exponent };
 }
 
-function extractLogIntegerAndNormalize(
-  value: Decimal,
-  base: Decimal,
-  digits: number,
-  guardPrec: number,
-): {
-  exponent: bigint;
-  remainder: Decimal;
-} {
-  const divDigits = digits + Math.max(guardPrec, 1);
-  if (value.eq(DECIMAL_ONE)) return { exponent: 0n, remainder: DECIMAL_ONE.clone() };
-  if (value.ge(DECIMAL_ONE)) return extractLogIntegerPositive(value, base, digits, guardPrec);
-  const positive = extractLogIntegerPositive(DECIMAL_ONE.div(value, divDigits), base, digits, guardPrec);
-  if (positive.remainder.eq(DECIMAL_ONE)) {
-    return { exponent: -positive.exponent, remainder: DECIMAL_ONE.clone() };
+/** Significant results strip all trailing zeros; rescale() stops at the integer position. */
+function normalize(value: Parts, minimumDigits = -Infinity): Parts {
+  if (value.coeff === 0n) return { coeff: 0n, digits: 0 };
+  if (value.digits <= minimumDigits || value.coeff % 10n !== 0n) return { ...value };
+  // Small coefficients are cheaper to trim directly; long runs of zeros use one string conversion.
+  if (abs(value.coeff) < pow10n(DEFAULT_PRECISION)) {
+    let { coeff, digits } = value;
+    while (digits > minimumDigits && coeff % 10n === 0n) {
+      coeff /= 10n;
+      digits--;
+    }
+    return { coeff, digits: ensureInteger(digits) };
+  }
+  const text = value.coeff.toString();
+  const end = text.search(/0+$/);
+  const zeros = Math.min(text.length - end, value.digits - minimumDigits);
+  const coeff = zeros === text.length - end ? BigInt(text.slice(0, end)) : value.coeff / pow10n(zeros);
+  return { coeff, digits: ensureInteger(value.digits - zeros) };
+}
+
+function order(value: Parts): number {
+  if (!value.coeff) throw new RangeError('order undefined for 0');
+  return abs(value.coeff).toString().length - 1 - value.digits;
+}
+
+function compare(a: Parts, b: Parts): number {
+  if (a.coeff === b.coeff && a.digits === b.digits) return 0;
+  if (a.coeff <= 0n && b.coeff >= 0n) return a.coeff === b.coeff ? 0 : -1;
+  if (a.coeff >= 0n && b.coeff <= 0n) return 1;
+  // Only inspect orders when alignment could require a large power of ten.
+  if (Math.abs(a.digits - b.digits) > 64) {
+    const difference = order(a) - order(b);
+    if (difference) {
+      const sign = a.coeff < 0n ? -1 : 1;
+      return difference < 0 ? -sign : sign;
+    }
+  }
+  const { aCoeff, bCoeff } = alignForOperation(a, b);
+  if (aCoeff === bCoeff) return 0;
+  return aCoeff > bCoeff ? 1 : -1;
+}
+
+function negate(a: Parts): Parts {
+  return { coeff: -a.coeff, digits: a.digits };
+}
+
+function quotient(numerator: bigint, denominator: bigint, mode: RoundingMode): bigint {
+  if (!denominator) throw new Error('Division by zero');
+  if (denominator < 0n) {
+    numerator = -numerator;
+    denominator = -denominator;
+  }
+  const result = numerator / denominator;
+  const remainder = numerator % denominator;
+  if (!remainder) return result;
+  if (mode === 'floor' && numerator < 0n) return result - 1n;
+  if (mode === 'ceil' && numerator > 0n) return result + 1n;
+  if (mode === 'round' && abs(remainder) * 2n >= denominator) return result + (numerator < 0n ? -1n : 1n);
+  return result;
+}
+
+function divideFixed(a: Parts, b: Parts, digits: number, mode: RoundingMode = 'round'): Parts {
+  if (!b.coeff) throw new Error('Division by zero');
+  if (!a.coeff) return { coeff: 0n, digits };
+  const shift = b.digits - a.digits + digits;
+  // Avoid expanding a huge denominator when the quotient is smaller than half a unit.
+  // Small shifts are cheaper to evaluate directly than to inspect coefficient lengths.
+  if ((shift < -64 || shift > 64) && order(a) - order(b) + digits < -1) {
+    const negative = a.coeff < 0n !== b.coeff < 0n;
+    let coeff = 0n;
+    if (mode === 'floor' && negative) coeff = -1n;
+    if (mode === 'ceil' && !negative) coeff = 1n;
+    return { coeff, digits };
   }
   return {
-    exponent: -positive.exponent - 1n,
-    remainder: DECIMAL_ONE.div(positive.remainder, divDigits).mul$(base),
+    coeff: quotient(
+      shift > 0 ? a.coeff * pow10n(shift) : a.coeff,
+      shift < 0 ? b.coeff * pow10n(-shift) : b.coeff,
+      mode,
+    ),
+    digits,
   };
+}
+
+function quotientOrder(numerator: bigint, denominator: bigint): number {
+  const a = abs(numerator);
+  const b = abs(denominator);
+  const approximateA = Number(a);
+  const approximateB = Number(b);
+  // Floating point only supplies a guess; exact comparisons decide the exponent.
+  let exponent =
+    Number.isFinite(approximateA) && Number.isFinite(approximateB)
+      ? Math.floor(Math.log10(approximateA) - Math.log10(approximateB))
+      : a.toString().length - b.toString().length;
+  let left = exponent < 0 ? a * pow10n(-exponent) : a;
+  let right = exponent > 0 ? b * pow10n(exponent) : b;
+  while (left < right) {
+    exponent--;
+    left *= 10n;
+  }
+  while (left >= right * 10n) {
+    exponent++;
+    right *= 10n;
+  }
+  return exponent;
+}
+
+function divideSignificant(a: Parts, b: Parts, p: number, mode: RoundingMode = 'round'): Parts {
+  if (!b.coeff) throw new Error('Division by zero');
+  if (!a.coeff) return { coeff: 0n, digits: 0 };
+  const coefficientExponent = quotientOrder(a.coeff, b.coeff);
+  const shift = p - 1 - coefficientExponent;
+  const result = quotient(
+    shift > 0 ? a.coeff * pow10n(shift) : a.coeff,
+    shift < 0 ? b.coeff * pow10n(-shift) : b.coeff,
+    mode,
+  );
+  const normalized = normalize({ coeff: result, digits: 0 });
+  return {
+    coeff: normalized.coeff,
+    digits: ensureInteger(a.digits - b.digits + (shift + normalized.digits)),
+  };
+}
+
+function roundSignificant(a: Parts, p: number, mode: RoundingMode = 'round'): Parts {
+  if (!a.coeff) return { coeff: 0n, digits: 0 };
+  const excess = abs(a.coeff).toString().length - p;
+  if (excess <= 0) return normalize(a);
+  return normalize({ coeff: quotient(a.coeff, pow10n(excess), mode), digits: ensureInteger(a.digits - excess) });
+}
+
+function divideExact(a: Parts, b: Parts): Parts | undefined {
+  if (!b.coeff) throw new Error('Division by zero');
+  if (!a.coeff) return { ...a };
+  const common = gcd(a.coeff, b.coeff);
+  let numerator = a.coeff / common;
+  let denominator = b.coeff / common;
+  if (denominator < 0n) {
+    numerator = -numerator;
+    denominator = -denominator;
+  }
+  const twos = removeFactor(denominator, 2n);
+  const fives = removeFactor(twos.value, 5n);
+  if (fives.value !== 1n) return undefined;
+  const scale = twos.exponent > fives.exponent ? twos.exponent : fives.exponent;
+  const digits = ensureInteger(a.digits - b.digits + scale);
+  return normalize({
+    coeff: numerator * 2n ** BigInt(scale - twos.exponent) * 5n ** BigInt(scale - fives.exponent),
+    digits,
+  });
+}
+
+/** Integer exponentiation capped at limit + 1, for root comparisons. */
+function powerCapped(base: bigint, exponent: number, limit: bigint): bigint {
+  let result = 1n;
+  while (exponent) {
+    if (exponent % 2) {
+      result *= base;
+      if (result > limit) return limit + 1n;
+    }
+    exponent = Math.floor(exponent / 2);
+    if (exponent) {
+      base *= base;
+      if (base > limit) base = limit + 1n;
+    }
+  }
+  return result;
+}
+
+function integerRoot(value: bigint, degree: number): bigint {
+  if (value < 2n || degree === 1) return value;
+  const bits = value.toString(2).length;
+  if (degree >= bits) return 1n;
+  let root = 1n << BigInt(Math.ceil(bits / degree));
+  const divisorDegree = BigInt(degree);
+  for (;;) {
+    const divisor = powerCapped(root, degree - 1, value);
+    const next = ((divisorDegree - 1n) * root + value / divisor) / divisorDegree;
+    if (next >= root) return root;
+    root = next;
+  }
+}
+
+function exactRoot(value: Parts, degree: number): Parts | undefined {
+  const normalized = normalize(value);
+  if (!normalized.coeff) return normalized;
+  if (normalized.digits % degree) return undefined;
+  const magnitude = abs(normalized.coeff);
+  const root = integerRoot(magnitude, degree);
+  if (powerCapped(root, degree, magnitude) !== magnitude) return undefined;
+  return { coeff: normalized.coeff < 0n ? -root : root, digits: normalized.digits / degree };
+}
+
+// Interval arithmetic and mathematical functions.
+
+type Bounds = { lower: Parts; upper: Parts };
+type FixedBounds = { lower: bigint; upper: bigint };
+
+class MorePrecision extends Error {}
+
+function roundedBounds(bounds: Bounds, p: number): Parts | undefined {
+  const lower = roundSignificant(bounds.lower, p);
+  const upper = roundSignificant(bounds.upper, p);
+  return compare(lower, upper) === 0 ? lower : undefined;
+}
+
+/** All operations round outwards; endpoints enclose the exact value. */
+class Fixed {
+  readonly unit: bigint;
+  readonly digits: number;
+  #ln2?: FixedBounds;
+  #ln10?: FixedBounds;
+
+  constructor(digits: number) {
+    this.digits = digits;
+    this.unit = pow10n(digits);
+  }
+
+  from(value: Parts): FixedBounds {
+    return {
+      lower: divideFixed(value, DECIMAL_ONE, this.digits, 'floor').coeff,
+      upper: divideFixed(value, DECIMAL_ONE, this.digits, 'ceil').coeff,
+    };
+  }
+
+  constant(value: bigint): FixedBounds {
+    return { lower: value * this.unit, upper: value * this.unit };
+  }
+
+  add(a: FixedBounds, b: FixedBounds): FixedBounds {
+    return { lower: a.lower + b.lower, upper: a.upper + b.upper };
+  }
+
+  neg(a: FixedBounds): FixedBounds {
+    return { lower: -a.upper, upper: -a.lower };
+  }
+
+  mul(a: FixedBounds, b: FixedBounds): FixedBounds {
+    if (a.lower >= 0n && b.lower >= 0n) {
+      return {
+        lower: quotient(a.lower * b.lower, this.unit, 'floor'),
+        upper: quotient(a.upper * b.upper, this.unit, 'ceil'),
+      };
+    }
+    const products = [a.lower * b.lower, a.lower * b.upper, a.upper * b.lower, a.upper * b.upper];
+    return {
+      lower: quotient(
+        products.reduce((a, b) => (a < b ? a : b)),
+        this.unit,
+        'floor',
+      ),
+      upper: quotient(
+        products.reduce((a, b) => (a > b ? a : b)),
+        this.unit,
+        'ceil',
+      ),
+    };
+  }
+
+  div(a: FixedBounds, b: FixedBounds): FixedBounds {
+    if (b.lower <= 0n && b.upper >= 0n) throw new MorePrecision();
+    if (b.lower === b.upper && b.lower % this.unit === 0n) {
+      const divisor = b.lower / this.unit;
+      return {
+        lower: quotient(divisor > 0n ? a.lower : a.upper, divisor, 'floor'),
+        upper: quotient(divisor > 0n ? a.upper : a.lower, divisor, 'ceil'),
+      };
+    }
+    const pairs = [
+      [a.lower, b.lower],
+      [a.lower, b.upper],
+      [a.upper, b.lower],
+      [a.upper, b.upper],
+    ];
+    return {
+      lower: pairs.map(([n, d]) => quotient(n * this.unit, d, 'floor')).reduce((a, b) => (a < b ? a : b)),
+      upper: pairs.map(([n, d]) => quotient(n * this.unit, d, 'ceil')).reduce((a, b) => (a > b ? a : b)),
+    };
+  }
+
+  scale(a: FixedBounds, n: bigint): FixedBounds {
+    return n < 0n ? { lower: a.upper * n, upper: a.lower * n } : { lower: a.lower * n, upper: a.upper * n };
+  }
+
+  parts(a: FixedBounds, exponent = 0): Bounds {
+    const digits = ensureInteger(this.digits - exponent);
+    return { lower: { coeff: a.lower, digits }, upper: { coeff: a.upper, digits } };
+  }
+
+  /** 2 atanh(t), including a geometric bound for the uncomputed tail. */
+  atanh(t: FixedBounds): FixedBounds {
+    const squared = this.mul(t, t);
+    const radius = abs(squared.lower) > abs(squared.upper) ? abs(squared.lower) : abs(squared.upper);
+    if (radius >= this.unit) throw new MorePrecision();
+    let term = t;
+    let sum = t;
+    for (let k = 3n; ; k += 2n) {
+      term = this.mul(term, squared);
+      const magnitude = abs(term.lower) > abs(term.upper) ? abs(term.lower) : abs(term.upper);
+      const tail = quotient(2n * magnitude * this.unit, k * (this.unit - radius), 'ceil');
+      if (tail <= 2n) return { lower: 2n * sum.lower - tail, upper: 2n * sum.upper + tail };
+      sum = this.add(sum, this.div(term, this.constant(k)));
+    }
+  }
+
+  ln2(): FixedBounds {
+    return (this.#ln2 ??= this.atanh(this.div(this.constant(1n), this.constant(3n))));
+  }
+
+  ln10(): FixedBounds {
+    // 10 = (5/4) * 2^3; atanh((5/4 - 1)/(5/4 + 1)) = atanh(1/9).
+    return (this.#ln10 ??= this.add(
+      this.atanh(this.div(this.constant(1n), this.constant(9n))),
+      this.scale(this.ln2(), 3n),
+    ));
+  }
+
+  ln(value: Parts): FixedBounds {
+    const length = value.coeff.toString().length;
+    const exponent = length - 1 - value.digits;
+    let mantissa = this.from({ coeff: value.coeff, digits: length - 1 });
+    let twos = 0n;
+    while (mantissa.upper > 2n * this.unit) {
+      mantissa = this.div(mantissa, this.constant(2n));
+      twos++;
+    }
+    const t = this.div(this.add(mantissa, this.constant(-1n)), this.add(mantissa, this.constant(1n)));
+    let result = mantissa.lower === 2n * this.unit && mantissa.upper === mantissa.lower ? this.ln2() : this.atanh(t);
+    if (twos) result = this.add(result, this.scale(this.ln2(), twos));
+    if (exponent) result = this.add(result, this.scale(this.ln10(), BigInt(exponent)));
+    return result;
+  }
+
+  expSmall(value: FixedBounds): FixedBounds {
+    let reduced = value;
+    let squares = 0;
+    while (abs(reduced.lower) > this.unit / 8n || abs(reduced.upper) > this.unit / 8n) {
+      reduced = this.div(reduced, this.constant(2n));
+      squares++;
+    }
+    let term = this.constant(1n);
+    let sum = term;
+    for (let k = 1n; ; k++) {
+      term = this.div(this.mul(term, reduced), this.constant(k));
+      const magnitude = abs(term.lower) > abs(term.upper) ? abs(term.lower) : abs(term.upper);
+      // |reduced| <= 1/8, so the tail starting at this term is less than 2 |term|.
+      if (magnitude <= 1n) {
+        sum = { lower: sum.lower - 2n * magnitude, upper: sum.upper + 2n * magnitude };
+        break;
+      }
+      sum = this.add(sum, term);
+    }
+    for (let i = 0; i < squares; i++) sum = this.mul(sum, sum);
+    return sum;
+  }
+
+  exp(value: FixedBounds): Bounds {
+    const ln10 = this.ln10();
+    const exponent = ensureInteger(
+      quotient(value.lower + value.upper, ln10.lower + ln10.upper, 'floor'),
+      'Exponent is out of range',
+    );
+    const reduced = this.add(value, this.neg(this.scale(ln10, BigInt(exponent))));
+    if (reduced.upper - reduced.lower > this.unit) throw new MorePrecision();
+    return this.parts(this.expSmall(reduced), exponent);
+  }
+}
+
+function adaptive(p: number, calculate: (work: number) => Bounds, faithful = false): Parts {
+  let work = ensureInteger(p + 16);
+  for (let attempt = 0; attempt < 16; attempt++, work = ensureInteger(work * 2)) {
+    try {
+      const bounds = calculate(work);
+      const rounded = roundedBounds(bounds, p);
+      if (rounded) return rounded;
+      if (faithful) {
+        const midpoint = new DecimalImpl(bounds.lower).add$(bounds.upper).divRound$(2, work);
+        if (midpoint.coeff) {
+          const ulp: Parts = { coeff: 1n, digits: ensureInteger(p - 1 - order(midpoint)) };
+          const width = new DecimalImpl(bounds.upper).sub$(bounds.lower);
+          // This also terminates on exact logarithms at a rounding midpoint.
+          if (compare(width, { coeff: ulp.coeff, digits: ensureInteger(ulp.digits + 4) }) <= 0) {
+            return roundSignificant(midpoint, p);
+          }
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof MorePrecision)) throw error;
+    }
+  }
+  throw new RangeError('Unable to resolve the requested precision');
+}
+
+function multiplyBounds(a: Bounds, b: Bounds, p: number): Bounds {
+  // Used only for non-negative powers.
+  return {
+    lower: roundSignificant(new DecimalImpl(a.lower).mul$(b.lower), p, 'floor'),
+    upper: roundSignificant(new DecimalImpl(a.upper).mul$(b.upper), p, 'ceil'),
+  };
+}
+
+function integerPowerBounds(value: Parts, exponent: number, p: number): Bounds {
+  let factor = { lower: roundSignificant(value, p, 'floor'), upper: roundSignificant(value, p, 'ceil') };
+  let result: Bounds = { lower: DECIMAL_ONE, upper: DECIMAL_ONE };
+  while (exponent) {
+    if (exponent % 2) result = multiplyBounds(result, factor, p);
+    exponent = Math.floor(exponent / 2);
+    if (exponent) factor = multiplyBounds(factor, factor, p);
+  }
+  return result;
+}
+
+function exactIntegerPower(value: Parts, exponent: number): Parts {
+  const base = normalize(value);
+  const digits = ensureInteger(base.digits * exponent);
+  return normalize({ coeff: base.coeff ** BigInt(exponent), digits });
+}
+
+function integerPower(value: Parts, exponent: number, p?: number): Parts {
+  const negative = exponent < 0;
+  const n = Math.abs(exponent);
+  if (!p) {
+    if (!negative) return exactIntegerPower(value, n);
+    const inverse = divideExact(DECIMAL_ONE, value);
+    if (inverse) return exactIntegerPower(inverse, n);
+    return integerPower(value, exponent, DEFAULT_PRECISION);
+  }
+  const base = normalize({ coeff: abs(value.coeff), digits: value.digits });
+  const sign = value.coeff < 0n && n % 2 ? -1n : 1n;
+  // Small exact results include all possible decimal midpoint ties for positive powers.
+  if ((base.coeff.toString(2).length - 1) * n <= 4 * (p + 16)) {
+    const exact = exactIntegerPower(base, n);
+    const result = negative ? divideSignificant(DECIMAL_ONE, exact, p) : roundSignificant(exact, p);
+    return { ...result, coeff: result.coeff * sign };
+  }
+  const result = adaptive(p, (work) => {
+    const bounds = integerPowerBounds(base, n, work);
+    return negative
+      ? {
+          lower: divideSignificant(DECIMAL_ONE, bounds.upper, work, 'floor'),
+          upper: divideSignificant(DECIMAL_ONE, bounds.lower, work, 'ceil'),
+        }
+      : bounds;
+  });
+  return { ...result, coeff: result.coeff * sign };
+}
+
+function root(value: Parts, degree: number, p?: number): Parts {
+  if (degree <= 0) throw new Error('Invalid root degree');
+  if (value.coeff < 0n && degree % 2 === 0) throw new Error('Even root of negative value is not defined');
+  if (!value.coeff) return { ...value };
+  if (degree === 1) return p ? roundSignificant(value, p) : { ...value };
+  const exact = exactRoot(value, degree);
+  if (exact) return p ? roundSignificant(exact, p) : exact;
+  const target = p ?? DEFAULT_PRECISION;
+  const magnitude = { coeff: abs(value.coeff), digits: value.digits };
+  const exponent = Math.floor(order(magnitude) / degree);
+  const digits = ensureInteger(target - 1 - exponent);
+  const shift = digits * degree - magnitude.digits;
+  let result: Parts;
+  // Integer root of a scaled rational; the scale depends on precision and degree, not the input exponent.
+  if (Math.abs(shift) <= 100_000 && degree <= 1024) {
+    const numerator = shift >= 0 ? magnitude.coeff * pow10n(shift) : magnitude.coeff;
+    const denominator = shift < 0 ? pow10n(-shift) : 1n;
+    let coefficient = integerRoot(numerator / denominator, degree);
+    const twice = numerator * 2n ** BigInt(degree);
+    if (powerCapped(2n * coefficient + 1n, degree, twice / denominator) * denominator <= twice) coefficient++;
+    result = normalize({ coeff: coefficient, digits });
+  } else {
+    result = adaptive(target, (work) => {
+      const fixed = new Fixed(work);
+      return fixed.exp(fixed.div(fixed.ln(magnitude), fixed.constant(BigInt(degree))));
+    });
+  }
+  return value.coeff < 0n ? negate(result) : result;
+}
+
+function power(value: Parts, exponent: Parts, p?: number): Parts {
+  const exp = normalize(exponent);
+  if (!exp.coeff) return DECIMAL_ONE;
+  if (!value.coeff) {
+    if (exp.coeff < 0n) throw new Error('Zero to negative exponent is undefined');
+    return { ...value };
+  }
+  if (compare(value, DECIMAL_ONE) === 0) return DECIMAL_ONE;
+  if (compare(value, negate(DECIMAL_ONE)) === 0 && exp.digits <= 0) {
+    return exp.digits < 0 || exp.coeff % 2n === 0n ? DECIMAL_ONE : negate(DECIMAL_ONE);
+  }
+  if (exp.digits <= 0)
+    return integerPower(value, ensureInteger(Number(exp.coeff) * 10 ** -exp.digits, 'Exponent is out of range'), p);
+  if (value.coeff < 0n) throw new Error('Fractional exponent requires non-negative base');
+  // Build the reduced denominator only when it can be small enough for an exact root.
+  // A denominator exceeding the coefficient bit length and scale cannot divide either.
+  const normalized = normalize(value);
+  const bound = abs(normalized.coeff).toString(2).length + Math.abs(normalized.digits);
+  let numerator = exp.coeff;
+  let twos = exp.digits;
+  let fives = twos;
+  while (twos && numerator % 2n === 0n) {
+    numerator /= 2n;
+    twos--;
+  }
+  while (fives && numerator % 5n === 0n) {
+    numerator /= 5n;
+    fives--;
+  }
+  const denominator = 2 ** twos * 5 ** fives;
+  if (denominator <= bound) {
+    const degree = ensureInteger(denominator, 'Root degree is out of range');
+    const exact = exactRoot(value, degree);
+    if (exact) return integerPower(exact, ensureInteger(numerator, 'Exponent is out of range'), p);
+    if (numerator === 1n) return root(value, degree, p);
+  }
+  return adaptive(p ?? DEFAULT_PRECISION, (work) => {
+    const fixed = new Fixed(work);
+    return fixed.exp(fixed.mul(fixed.ln(value), fixed.from(exponent)));
+  });
+}
+
+function logarithm(value: Parts, base: Parts, p: number): Parts {
+  if (value.coeff <= 0n) throw new Error('Logarithm argument must be positive');
+  if (base.coeff <= 0n) throw new Error('Logarithm base must be positive');
+  if (compare(base, DECIMAL_ONE) === 0) throw new Error('Logarithm base cannot be one');
+  if (compare(value, DECIMAL_ONE) === 0) return { coeff: 0n, digits: 0 };
+  if (compare(value, base) === 0) return DECIMAL_ONE;
+  const a = normalize(value);
+  const b = normalize(base);
+  if (a.coeff === 1n && b.coeff === 1n) {
+    return divideSignificant({ coeff: BigInt(a.digits), digits: 0 }, { coeff: BigInt(b.digits), digits: 0 }, p);
+  }
+  // Detect integer powers of integer bases without factoring them.
+  if (a.digits === 0 && b.digits === 0) {
+    const common = gcd(a.coeff, b.coeff);
+    if (common === a.coeff || common === b.coeff) {
+      const small = a.coeff < b.coeff ? a.coeff : b.coeff;
+      let large = a.coeff < b.coeff ? b.coeff : a.coeff;
+      let n = 0n;
+      while (large % small === 0n) {
+        large /= small;
+        n++;
+      }
+      if (large === 1n)
+        return a.coeff < b.coeff
+          ? divideSignificant(DECIMAL_ONE, { coeff: n, digits: 0 }, p)
+          : roundSignificant({ coeff: n, digits: 0 }, p);
+    }
+  }
+  // General logarithms are faithfully rounded (error < 1 ulp); exact midpoint detection
+  // would otherwise require proving arbitrary multiplicative relations between inputs.
+  return adaptive(
+    p,
+    (work) => {
+      const fixed = new Fixed(work);
+      return fixed.parts(fixed.div(fixed.ln(value), fixed.ln(base)));
+    },
+    true,
+  );
 }
 
 class DecimalImpl implements Decimal {
@@ -374,8 +834,8 @@ class DecimalImpl implements Decimal {
     return new DecimalImpl(this);
   }
 
-  #set$(coeff: bigint | Decimal, digits: number = 0): this {
-    if (isDecimal(coeff)) {
+  #set$(coeff: bigint | Parts, digits: number = 0): this {
+    if (typeof coeff !== 'bigint') {
       this.digits = coeff.digits;
       this.coeff = coeff.coeff;
       return this;
@@ -386,41 +846,8 @@ class DecimalImpl implements Decimal {
   }
 
   #div$(divisor: Decimal, targetDigits: number, mode: RoundingMode): this {
-    let numerator = this.coeff;
-    let denominator = divisor.coeff;
-
-    const shift = divisor.digits + targetDigits - this.digits;
-    if (shift >= 0) {
-      numerator *= pow10n(shift);
-    } else {
-      denominator *= pow10n(-shift);
-    }
-
-    let quotient = numerator / denominator;
-    const remainder = numerator - quotient * denominator;
-    if (remainder !== 0n && mode !== 'trunc') {
-      const positive = numerator >= 0n;
-      switch (mode) {
-        case 'floor':
-          if (!positive) quotient -= 1n;
-          break;
-        case 'ceil':
-          if (positive) quotient += 1n;
-          break;
-        case 'round': {
-          const absRemainder = abs(remainder);
-          const threshold = denominator < 0n ? -denominator : denominator;
-          if (absRemainder * 2n >= threshold) {
-            quotient += positive ? 1n : -1n;
-          }
-          break;
-        }
-        default:
-          break;
-      }
-    }
-
-    return this.#set$(quotient, targetDigits);
+    const result = divideFixed(this, divisor, targetDigits, mode);
+    return this.#set$(result.coeff, result.digits);
   }
 
   #rescale$(targetDigits: bigint | number, mode: RoundingMode = 'trunc'): this {
@@ -440,19 +867,6 @@ class DecimalImpl implements Decimal {
     return this.#div$(DECIMAL_ONE, normalized, mode);
   }
 
-  #stripTrailingZeros$(): this {
-    if (this.coeff === 0n) {
-      this.digits = 0;
-      return this;
-    }
-    if (this.digits <= 0) return this;
-    while (this.digits > 0 && this.coeff % 10n === 0n) {
-      this.coeff /= 10n;
-      this.digits -= 1;
-    }
-    return this;
-  }
-
   round$(digits: bigint | number = 0, force = false): this {
     const normalized = ensureInteger(digits);
     if (!force && this.digits <= normalized) return this;
@@ -467,7 +881,7 @@ class DecimalImpl implements Decimal {
     const multiple = new DecimalImpl(step).abs();
     if (multiple.isZero()) throw new Error('Cannot align to zero');
 
-    return this.div$(multiple, 0, mode).mul$(multiple);
+    return this.divRound$(multiple, 0, mode).mul$(multiple);
   }
 
   roundBy(step: DecimalLike, mode: RoundingMode = 'round'): DecimalImpl {
@@ -521,7 +935,7 @@ class DecimalImpl implements Decimal {
   }
 
   rescale$(digits?: bigint | number, mode: RoundingMode = 'trunc'): this {
-    if (digits == null) return this.#stripTrailingZeros$();
+    if (digits == null) return this.#set$(normalize(this, 0));
     return this.#rescale$(digits, mode);
   }
 
@@ -597,12 +1011,15 @@ class DecimalImpl implements Decimal {
     return this.coeff < 0n;
   }
 
-  add$(v: DecimalLike): this {
-    const value = Decimal(v);
-    const { digits, aCoeff, bCoeff } = alignForOperation(this, value);
-    this.coeff = aCoeff + bCoeff;
+  #add$(v: DecimalLike, subtract = false): this {
+    const { digits, aCoeff, bCoeff } = alignForOperation(this, Decimal(v));
+    this.coeff = subtract ? aCoeff - bCoeff : aCoeff + bCoeff;
     this.digits = digits;
     return this;
+  }
+
+  add$(v: DecimalLike): this {
+    return this.#add$(v);
   }
 
   add(v: DecimalLike): DecimalImpl {
@@ -610,11 +1027,7 @@ class DecimalImpl implements Decimal {
   }
 
   sub$(v: DecimalLike): this {
-    const value = Decimal(v);
-    const { digits, aCoeff, bCoeff } = alignForOperation(this, value);
-    this.coeff = aCoeff - bCoeff;
-    this.digits = digits;
-    return this;
+    return this.#add$(v, true);
   }
 
   sub(v: DecimalLike): DecimalImpl {
@@ -623,8 +1036,9 @@ class DecimalImpl implements Decimal {
 
   mul$(v: DecimalLike, digits?: number | bigint | undefined): this {
     const value = Decimal(v);
+    const target = ensureInteger(this.digits + value.digits);
     this.coeff *= value.coeff;
-    this.digits += value.digits;
+    this.digits = target;
     if (digits !== undefined) this.round$(digits);
     return this;
   }
@@ -636,7 +1050,7 @@ class DecimalImpl implements Decimal {
   shift10$(exponent: bigint | number): this {
     const normalized = ensureInteger(exponent, 'Shift amount must be an integer');
     if (normalized === 0) return this;
-    this.digits -= normalized;
+    this.digits = ensureInteger(this.digits - normalized);
     return this;
   }
 
@@ -644,30 +1058,70 @@ class DecimalImpl implements Decimal {
     return this.clone().shift10$(exponent);
   }
 
-  inverse$(digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    if (this.isZero()) throw new Error('Division by zero');
-    const target = ensureDigits(digits);
-    const divisor = this.clone();
-    return this.#set$(1n).div$(divisor, target);
+  inverse$(significantDigits?: bigint | number): this {
+    return this.#set$(new DecimalImpl(1n).div$(this, significantDigits));
   }
 
-  inverse(digits: bigint | number = DEFAULT_DIVISION_PRECISION): DecimalImpl {
-    return this.clone().inverse$(digits);
+  inverse(significantDigits?: bigint | number): DecimalImpl {
+    return this.clone().inverse$(significantDigits);
   }
 
-  div$(v: DecimalLike, digits?: bigint | number, mode: RoundingMode = 'round'): this {
-    const stripTrailingZeros = digits === undefined;
-    const targetDigits = ensureDigits(digits ?? DEFAULT_DIVISION_PRECISION);
+  div$(v: DecimalLike, significantDigits?: bigint | number, mode: RoundingMode = 'round'): this {
+    if (significantDigits === undefined) return this.divExact$(v, DEFAULT_PRECISION, mode);
+    const p = ensurePrecision(significantDigits);
+    const result = divideSignificant(this, Decimal(v), p, mode);
+    return this.#set$(result.coeff, result.digits);
+  }
+
+  div(v: DecimalLike, significantDigits?: bigint | number, mode: RoundingMode = 'round'): DecimalImpl {
+    return this.clone().div$(v, significantDigits, mode);
+  }
+
+  divExact$(v: DecimalLike, fallbackPrecision?: bigint | number, mode: RoundingMode = 'round'): this {
+    const fallback = fallbackPrecision === undefined ? undefined : ensurePrecision(fallbackPrecision);
     const divisor = Decimal(v);
-    if (divisor.isZero()) throw new Error('Division by zero');
-    if (this.isZero()) return this;
-
-    this.#div$(divisor, targetDigits, mode);
-    return stripTrailingZeros ? this.#stripTrailingZeros$() : this;
+    const exact = divideExact(this, divisor);
+    if (exact) return this.#set$(exact.coeff, exact.digits);
+    if (fallback === undefined) throw new RangeError('Non-terminating decimal expansion');
+    const result = divideSignificant(this, divisor, fallback, mode);
+    return this.#set$(result.coeff, result.digits);
   }
 
-  div(v: DecimalLike, digits?: bigint | number, mode: RoundingMode = 'round'): DecimalImpl {
-    return this.clone().div$(v, digits, mode);
+  divExact(v: DecimalLike, fallbackPrecision?: bigint | number, mode: RoundingMode = 'round'): DecimalImpl {
+    return this.clone().divExact$(v, fallbackPrecision, mode);
+  }
+
+  divRound$(v: DecimalLike, digits: bigint | number = 0, mode: RoundingMode = 'round'): this {
+    const target = ensureInteger(digits);
+    return this.#div$(Decimal(v), target, mode);
+  }
+
+  divRound(v: DecimalLike, digits: bigint | number = 0, mode: RoundingMode = 'round'): DecimalImpl {
+    return this.clone().divRound$(v, digits, mode);
+  }
+
+  divFloor$(v: DecimalLike, digits: bigint | number = 0): this {
+    return this.divRound$(v, digits, 'floor');
+  }
+
+  divFloor(v: DecimalLike, digits: bigint | number = 0): DecimalImpl {
+    return this.clone().divFloor$(v, digits);
+  }
+
+  divCeil$(v: DecimalLike, digits: bigint | number = 0): this {
+    return this.divRound$(v, digits, 'ceil');
+  }
+
+  divCeil(v: DecimalLike, digits: bigint | number = 0): DecimalImpl {
+    return this.clone().divCeil$(v, digits);
+  }
+
+  divTrunc$(v: DecimalLike, digits: bigint | number = 0): this {
+    return this.divRound$(v, digits, 'trunc');
+  }
+
+  divTrunc(v: DecimalLike, digits: bigint | number = 0): DecimalImpl {
+    return this.clone().divTrunc$(v, digits);
   }
 
   abs$(): this {
@@ -726,10 +1180,7 @@ class DecimalImpl implements Decimal {
   }
 
   cmp(v: DecimalLike): number {
-    const other = Decimal(v);
-    const { aCoeff, bCoeff } = alignForOperation(this, other);
-    if (aCoeff === bCoeff) return 0;
-    return aCoeff > bCoeff ? 1 : -1;
+    return compare(this, Decimal(v));
   }
 
   eq(v: DecimalLike): boolean {
@@ -772,153 +1223,43 @@ class DecimalImpl implements Decimal {
     return this.sub(v).abs$().le(toleranceValue);
   }
 
-  pow$(exponent: DecimalLike, digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    const prec = ensureDigits(digits);
-    const expVal = Decimal(exponent);
-    if (expVal.isZero()) return this.#set$(1n);
-    if (this.isZero()) {
-      if (expVal.isNegative()) throw new Error('Zero to negative exponent is undefined');
-      return this;
-    }
-    const negExp = expVal.isNegative();
-    const [intPart, fracPart] = expVal.abs().split$();
-    const base = this.clone();
-    const fracScale = fracPart.isZero() ? 0 : fracPart.digits;
-    if (base.isNegative() && fracScale > 0) throw new Error('Fractional exponent requires non-negative base');
-
-    const result = powInt(base, intPart.coeff);
-    let fracPrec = prec;
-    if (fracScale > 0) {
-      const fracPad = Math.max(4, fracScale);
-      fracPrec = prec + fracPad;
-    }
-    const fracFactor = powFrac(base, fracPart, fracPrec, fracScale);
-    if (fracScale > 0) {
-      result.mul$(fracFactor, fracPrec);
-    }
-    const workPrec = fracPrec > prec ? fracPrec : prec;
-    const outPrec = fracScale > 0 ? fracPrec : prec;
-
-    if (negExp) {
-      this.#set$(1n).div$(result, workPrec);
-    } else {
-      result.round$(workPrec, true);
-      this.#set$(result);
-    }
-
-    this.round$(outPrec, outPrec === 0);
-    return this;
+  pow$(exponent: DecimalLike, significantDigits?: bigint | number): this {
+    const p = significantDigits === undefined ? undefined : ensurePrecision(significantDigits);
+    const result = power(this, Decimal(exponent), p);
+    return this.#set$(result.coeff, result.digits);
   }
 
-  pow(exponent: DecimalLike, digits: bigint | number = DEFAULT_DIVISION_PRECISION): DecimalImpl {
-    return this.clone().pow$(exponent, digits);
+  pow(exponent: DecimalLike, significantDigits?: bigint | number): DecimalImpl {
+    return this.clone().pow$(exponent, significantDigits);
   }
 
-  root$(degreeInput: bigint | number, digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    const degree = ensureBigInt(degreeInput, 'Root degree must be an integer');
-    if (degree <= 0n) throw new Error('Invalid root degree');
-    const prec = ensureDigits(digits);
-    if (degree === 1n) {
-      return prec < this.digits ? this : this.trunc$(prec, true);
-    }
-    if (this.isZero()) return this;
-
-    const wasNegative = this.isNegative();
-    if (wasNegative && degree % 2n === 0n) throw new Error('Even root of negative value is not defined');
-
-    const magnitude = this.abs();
-    const degMinusOne = degree - 1n;
-    const { iterPrec, stopShift } = estimateRootIterSettings(prec, degree);
-    const tolerance = pow10(-stopShift);
-
-    const initial = (() => {
-      const approx = magnitude.number();
-      if (Number.isFinite(approx) && approx > 0) {
-        const degAsNumber = Number(degree);
-        if (degAsNumber > 0) {
-          const rootApprox = Math.pow(approx, 1 / degAsNumber);
-          if (Number.isFinite(rootApprox) && rootApprox > 0) {
-            const guess = new DecimalImpl(rootApprox);
-            return guess.round$(iterPrec, true);
-          }
-        }
-      }
-      const orderEstimate = magnitude.order();
-      return new DecimalImpl(pow10(orderEstimate / degree)).round$(iterPrec, true);
-    })();
-
-    this.#set$(initial.coeff, initial.digits);
-    if (this.isZero()) this.#set$(1n);
-
-    for (let i = 0; i < 64; i++) {
-      const power = powInt(this.clone(), degMinusOne, iterPrec);
-      if (power.isZero()) break;
-      const term = magnitude.div(power, iterPrec);
-      const next = this.mul(degMinusOne, iterPrec).add$(term).div$(degree, iterPrec);
-      if (next.isCloseTo(this, tolerance) || next.eq(this)) {
-        this.#set$(next);
-        break;
-      }
-      this.#set$(next);
-    }
-
-    this.round$(iterPrec, true);
-    this.round$(prec, prec === 0);
-    if (wasNegative) this.neg$();
-    return this;
+  root$(degreeInput: bigint | number, significantDigits?: bigint | number): this {
+    const degree = ensureInteger(degreeInput, 'Root degree must be an integer');
+    const p = significantDigits === undefined ? undefined : ensurePrecision(significantDigits);
+    const result = root(this, degree, p);
+    return this.#set$(result.coeff, result.digits);
   }
 
-  root(degree: bigint | number, digits: bigint | number = DEFAULT_DIVISION_PRECISION): DecimalImpl {
-    return this.clone().root$(degree, digits);
+  root(degree: bigint | number, significantDigits?: bigint | number): DecimalImpl {
+    return this.clone().root$(degree, significantDigits);
   }
 
-  sqrt$(digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    return this.root$(2n, digits);
+  sqrt$(significantDigits?: bigint | number): this {
+    return this.root$(2n, significantDigits);
   }
 
-  sqrt(digits: bigint | number = DEFAULT_DIVISION_PRECISION): DecimalImpl {
-    return this.clone().sqrt$(digits);
+  sqrt(significantDigits?: bigint | number): DecimalImpl {
+    return this.clone().sqrt$(significantDigits);
   }
 
-  log$(base: DecimalLike, digits: bigint | number = DEFAULT_DIVISION_PRECISION): this {
-    const precision = ensureDigits(digits);
-    const baseValue = new DecimalImpl(base);
-
-    if (!this.isPositive()) throw new Error('Logarithm argument must be positive');
-    if (!baseValue.isPositive()) throw new Error('Logarithm base must be positive');
-    if (baseValue.eq(DECIMAL_ONE)) throw new Error('Logarithm base cannot be one');
-
-    const { guardPrec, fracPrec, bits, divPrec } = estimateLogGuardSettings(precision, baseValue.digits, this.digits);
-
-    const baseBelowOne = baseValue.lt(DECIMAL_ONE);
-    const baseNorm = baseBelowOne ? DECIMAL_ONE.div(baseValue, divPrec) : baseValue;
-
-    const { exponent: intExp, remainder } = extractLogIntegerAndNormalize(this, baseNorm, fracPrec, guardPrec);
-
-    this.#set$(intExp);
-    if (fracPrec > 0) {
-      let flags = 0n;
-      for (let i = 0; i < bits; i++) {
-        remainder.mul$(remainder, divPrec);
-        flags <<= 1n;
-        if (remainder.ge(baseNorm)) {
-          remainder.div$(baseNorm, divPrec);
-          flags |= 1n;
-        }
-      }
-      if (flags !== 0n) {
-        this.add$({ coeff: flags * pow5n(bits), digits: bits });
-      }
-    }
-
-    const finalPrec = precision === 0 ? 0 : fracPrec;
-    this.round$(finalPrec);
-    if (baseBelowOne) this.neg$();
-    return this;
+  log$(base: DecimalLike, significantDigits: bigint | number = DEFAULT_PRECISION): this {
+    const p = ensurePrecision(significantDigits);
+    const result = logarithm(this, Decimal(base), p);
+    return this.#set$(result.coeff, result.digits);
   }
 
-  log(base: DecimalLike, digits: bigint | number = DEFAULT_DIVISION_PRECISION): DecimalImpl {
-    return this.clone().log$(base, digits);
+  log(base: DecimalLike, significantDigits: bigint | number = DEFAULT_PRECISION): DecimalImpl {
+    return this.clone().log$(base, significantDigits);
   }
 
   sign$() {
@@ -933,8 +1274,7 @@ class DecimalImpl implements Decimal {
   }
 
   order(): bigint {
-    if (this.isZero()) throw new RangeError('order undefined for 0');
-    return BigInt(abs(this.coeff).toString().length) - 1n - BigInt(this.digits);
+    return BigInt(order(this));
   }
 
   toFixed(fractionDigits: bigint | number): string {
@@ -1014,19 +1354,15 @@ class DecimalImpl implements Decimal {
   }
 }
 
-const DEFAULT_DIVISION_PRECISION = 18;
-const LOG_BINARY_PER_DECIMAL = Math.log2(10);
-
+const DEFAULT_PRECISION = 18;
 const DECIMAL_ONE = new DecimalImpl(1n);
 
 // create pow10n cache
-const pow5nCache: bigint[] = [];
 const pow10nCache: bigint[] = [];
 
-(function craetePowCache() {
+(function createPowCache() {
   for (let i = 0; i < 256; i++) {
     pow10nCache[i] = 10n ** BigInt(i);
-    pow5nCache[i] = 5n ** BigInt(i);
   }
 })();
 
